@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type Project = {
+  id: string;
   name: string;
   description: string;
   progress: number;
@@ -12,13 +13,15 @@ type Project = {
 
 const starterProjects: Project[] = [
   {
+    id: "jarvis-os",
     name: "Jarvis OS",
     description: "Build the personal AI operating system.",
     progress: 40,
     status: "Active",
-    nextAction: "Create interactive project cards",
+    nextAction: "Create persistent project storage",
   },
   {
+    id: "pepperdine",
     name: "Pepperdine",
     description: "Manage coursework, readings, deadlines, and research.",
     progress: 20,
@@ -26,6 +29,7 @@ const starterProjects: Project[] = [
     nextAction: "Import the academic calendar",
   },
   {
+    id: "rouke-ranch",
     name: "Rouke Ranch",
     description: "Organize property projects, branding, and content.",
     progress: 65,
@@ -33,6 +37,7 @@ const starterProjects: Project[] = [
     nextAction: "Plan the next content batch",
   },
   {
+    id: "finance",
     name: "Finance",
     description: "Track taxes, accounts, budgets, and major decisions.",
     progress: 15,
@@ -41,11 +46,38 @@ const starterProjects: Project[] = [
   },
 ];
 
+const storageKey = "jarvis-projects";
+
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>(starterProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    try {
+      const savedProjects = window.localStorage.getItem(storageKey);
+
+      if (savedProjects) {
+        setProjects(JSON.parse(savedProjects) as Project[]);
+      } else {
+        setProjects(starterProjects);
+      }
+    } catch {
+      setProjects(starterProjects);
+    } finally {
+      setIsLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(projects));
+  }, [projects, isLoaded]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -58,6 +90,7 @@ export default function ProjectsPage() {
     }
 
     const newProject: Project = {
+      id: crypto.randomUUID(),
       name: trimmedName,
       description:
         trimmedDescription || "No project description has been added yet.",
@@ -70,6 +103,28 @@ export default function ProjectsPage() {
     setName("");
     setDescription("");
     setIsFormOpen(false);
+  }
+
+  function deleteProject(projectId: string) {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this project?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setProjects((currentProjects) =>
+      currentProjects.filter((project) => project.id !== projectId),
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <main className="min-h-screen bg-slate-950 px-8 py-10 text-slate-100">
+        <p className="text-slate-400">Loading projects...</p>
+      </main>
+    );
   }
 
   return (
@@ -138,9 +193,9 @@ export default function ProjectsPage() {
         )}
 
         <section className="grid gap-6 md:grid-cols-2">
-          {projects.map((project, index) => (
+          {projects.map((project) => (
             <article
-              key={`${project.name}-${index}`}
+              key={project.id}
               className="rounded-2xl border border-slate-800 bg-slate-900 p-6"
             >
               <div className="flex items-start justify-between gap-4">
@@ -180,6 +235,14 @@ export default function ProjectsPage() {
                   {project.nextAction}
                 </p>
               </div>
+
+              <button
+                type="button"
+                onClick={() => deleteProject(project.id)}
+                className="mt-5 text-sm text-red-400 transition hover:text-red-300"
+              >
+                Delete project
+              </button>
             </article>
           ))}
         </section>
