@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model GoogleAccount {
+  id           String   @id @default(cuid())
+  googleId     String
+  email        String
+  displayName  String?
+  accessToken  String
+  refreshToken String?
+  expiresAt    Int?
+  scope        String?
+  tokenType    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  calendars GoogleCalendar[]
+
+  @@unique([googleId, email])
+}
+
+model GoogleCalendar {
+  id               String   @id @default(cuid())
+  googleCalendarId String
+  name             String
+  description      String?
+  backgroundColor  String?
+  foregroundColor  String?
+  timeZone         String?
+  isPrimary        Boolean  @default(false)
+  isSelected       Boolean  @default(true)
+  accessRole       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  googleAccountId String
+  googleAccount   GoogleAccount @relation(fields: [googleAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([googleAccountId, googleCalendarId])
+}
