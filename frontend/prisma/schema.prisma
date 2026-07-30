@@ -7,40 +7,169 @@ datasource db {
   provider = "sqlite"
 }
 
-model GoogleAccount {
-  id           String   @id @default(cuid())
-  googleId     String
-  email        String
-  displayName  String?
-  accessToken  String
-  refreshToken String?
-  expiresAt    Int?
-  scope        String?
-  tokenType    String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  calendars GoogleCalendar[]
-
-  @@unique([googleId, email])
+enum IntegrationProvider {
+  GOOGLE
+  APPLE
+  MICROSOFT
+  JARVIS
 }
 
-model GoogleCalendar {
+enum IntegrationStatus {
+  ACTIVE
+  NEEDS_AUTH
+  ERROR
+  DISCONNECTED
+}
+
+enum CalendarAccessRole {
+  OWNER
+  WRITER
+  READER
+  FREE_BUSY
+  NONE
+}
+
+enum EventStatus {
+  CONFIRMED
+  TENTATIVE
+  CANCELLED
+}
+
+model User {
+  id          String   @id @default(cuid())
+  email       String?  @unique
+  displayName String?
+  timeZone    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  settings     UserSetting[]
+  integrations Integration[]
+  calendars    ExternalCalendar[]
+  oauthStates  OAuthState[]
+}
+
+model UserSetting {
+  id        String   @id @default(cuid())
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+}
+
+model Integration {
+  id                String              @id @default(cuid())
+  provider          IntegrationProvider
+  providerAccountId String
+  email             String?
+  displayName       String?
+  status            IntegrationStatus   @default(ACTIVE)
+  lastSyncedAt      DateTime?
+  lastError         String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  credential IntegrationCredential?
+  calendars  ExternalCalendar[]
+
+  @@unique([userId, provider, providerAccountId])
+  @@index([userId, provider])
+  @@index([status])
+}
+
+model IntegrationCredential {
   id               String   @id @default(cuid())
-  googleCalendarId String
-  name             String
-  description      String?
-  backgroundColor  String?
-  foregroundColor  String?
-  timeZone         String?
-  isPrimary        Boolean  @default(false)
-  isSelected       Boolean  @default(true)
-  accessRole       String?
+  encryptedPayload String
+  keyVersion       Int      @default(1)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  googleAccountId String
-  googleAccount   GoogleAccount @relation(fields: [googleAccountId], references: [id], onDelete: Cascade)
+  integrationId String      @unique
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+}
 
-  @@unique([googleAccountId, googleCalendarId])
+model ExternalCalendar {
+  id            String             @id @default(cuid())
+  externalId    String
+  name          String
+  description   String?
+  timeZone      String?
+  providerColor String?
+  customColor   String?
+  accessRole    CalendarAccessRole @default(READER)
+  isPrimary     Boolean            @default(false)
+  isEnabled     Boolean            @default(true)
+  isReadOnly    Boolean            @default(true)
+  syncCursor    String?
+  lastSyncedAt  DateTime?
+  lastError     String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  integrationId String?
+  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  events CalendarEvent[]
+
+  @@unique([integrationId, externalId])
+  @@index([userId])
+  @@index([integrationId, isEnabled])
+}
+
+model CalendarEvent {
+  id               String      @id @default(cuid())
+  externalId       String?
+  title            String
+  description      String?
+  location         String?
+  startAt          DateTime
+  endAt            DateTime
+  isAllDay         Boolean     @default(false)
+  status           EventStatus @default(CONFIRMED)
+  htmlLink         String?
+  etag             String?
+  recurrenceRule   String?
+  recurringEventId String?
+  originalStartAt  DateTime?
+  sourceUpdatedAt  DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  calendarId String
+  calendar   ExternalCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, externalId])
+  @@index([calendarId, startAt])
+  @@index([startAt])
+  @@index([endAt])
+  @@index([recurringEventId])
+}
+
+model OAuthState {
+  id           String              @id @default(cuid())
+  state        String              @unique
+  provider     IntegrationProvider
+  redirectPath String?
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime            @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
