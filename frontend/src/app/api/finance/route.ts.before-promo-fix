@@ -1,0 +1,556 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { prisma } from "@/lib/prisma";
+import { getOrCreateDefaultUser } from "@/repositories/user-repository";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const user = await getOrCreateDefaultUser();
+
+  const [accounts, bills, plaidItems, recurringSuggestions] = await Promise.all([
+    prisma.financialAccount.findMany({
+      where: {
+        userId: user.id,
+      },
+      orderBy: [
+        {
+          isDebtTarget: "desc",
+        },
+        {
+          isDebt: "desc",
+        },
+        {
+          name: "asc",
+        },
+      ],
+    }),
+
+    prisma.bill.findMany({
+      where: {
+        userId: user.id,
+        isActive: true,
+      },
+      include: {
+        account: true,
+      },
+      orderBy: [
+        {
+          nextDueAt: "asc",
+        },
+        {
+          dueDay: "asc",
+        },
+        {
+          name: "asc",
+        },
+      ],
+    }),
+
+    prisma.plaidItem.findMany({
+      where: {
+        userId: user.id,
+        status: "ACTIVE",
+      },
+      select: {
+        id: true,
+        institutionName: true,
+        institutionId: true,
+        lastSyncedAt: true,
+        lastError: true,
+      },
+      orderBy: {
+        institutionName: "asc",
+      },
+    }),
+
+    prisma.recurringBillSuggestion.findMany({
+      where: {
+        userId: user.id,
+        reviewStatus: "PENDING",
+      },
+      orderBy: [
+        {
+          predictedNextDate: "asc",
+        },
+        {
+          merchantName: "asc",
+        },
+      ],
+    }),
+  ]);
+
+  return NextResponse.json({
+    accounts,
+    bills,
+    plaidItems,
+    recurringSuggestions,
+  });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      type?: "account" | "bill";
+
+      name?: string;
+      institution?: string | null;
+      accountType?: string;
+      isDebt?: boolean;
+      startingBalance?: number;
+      currentBalance?: number;
+      minimumPayment?: number | null;
+      interestRate?: number | null;
+      notes?: string | null;
+
+      amount?: number;
+      frequency?: string;
+      dueDay?: number | null;
+      nextDueAt?: string | null;
+      isAutopay?: boolean;
+      accountId?: string | null;
+    };
+
+    const user = await getOrCreateDefaultUser();
+
+    if (body.type === "account") {
+      if (!body.name?.trim() || !body.accountType?.trim()) {
+        return NextResponse.json(
+          {
+            error: "Account name and type are required.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      const account = await prisma.financialAccount.create({
+        data: {
+          userId: user.id,
+          name: body.name.trim(),
+          institution: body.institution?.trim() || null,
+          accountType: body.accountType.trim(),
+          isDebt: body.isDebt ?? false,
+          startingBalance: body.startingBalance ?? 0,
+          currentBalance: body.currentBalance ?? 0,
+          minimumPayment: body.minimumPayment ?? null,
+          interestRate: body.interestRate ?? null,
+          notes: body.notes?.trim() || null,
+        },
+      });
+
+      return NextResponse.json({
+        account,
+      });
+    }
+
+    if (body.type === "bill") {
+      if (
+        !body.name?.trim() ||
+        body.amount === undefined ||
+        body.amount < 0
+      ) {
+        return NextResponse.json(
+          {
+            error: "Bill name and amount are required.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      const bill = await prisma.bill.create({
+        data: {
+          userId: user.id,
+          name: body.name.trim(),
+          amount: body.amount,
+          frequency: body.frequency?.trim() || "MONTHLY",
+          dueDay: body.dueDay ?? null,
+          nextDueAt: body.nextDueAt
+            ? new Date(body.nextDueAt)
+            : null,
+          isAutopay: body.isAutopay ?? false,
+          accountId: body.accountId || null,
+          notes: body.notes?.trim() || null,
+        },
+        include: {
+          account: true,
+        },
+      });
+
+      return NextResponse.json({
+        bill,
+      });
+    }
+
+    return NextResponse.json(
+      {
+        error: "Invalid finance record type.",
+      },
+      {
+        status: 400,
+      },
+    );
+  } catch (error) {
+    console.error("Failed to create finance record:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to create finance record.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      type?: "account" | "bill";
+      id?: string;
+
+      name?: string;
+      institution?: string | null;
+      accountType?: string;
+      isDebt?: boolean;
+      isDebtTarget?: boolean;
+      startingBalance?: number;
+      currentBalance?: number;
+      minimumPayment?: number | null;
+      interestRate?: number | null;
+      notes?: string | null;
+
+      amount?: number;
+      frequency?: string;
+      dueDay?: number | null;
+      nextDueAt?: string | null;
+      isAutopay?: boolean;
+      isActive?: boolean;
+      lastPaidAt?: string | null;
+      accountId?: string | null;
+    };
+
+    if (!body.id || !body.type) {
+      return NextResponse.json(
+        {
+          error: "Finance record ID and type are required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const user = await getOrCreateDefaultUser();
+
+    if (body.type === "account") {
+      const existing = await prisma.financialAccount.findFirst({
+        where: {
+          id: body.id,
+          userId: user.id,
+        },
+      });
+
+      if (!existing) {
+        return NextResponse.json(
+          {
+            error: "Financial account not found.",
+          },
+          {
+            status: 404,
+          },
+        );
+      }
+
+      if (body.isDebtTarget === true) {
+        await prisma.financialAccount.updateMany({
+          where: {
+            userId: user.id,
+            isDebtTarget: true,
+          },
+          data: {
+            isDebtTarget: false,
+          },
+        });
+      }
+
+      const account = await prisma.financialAccount.update({
+        where: {
+          id: existing.id,
+        },
+        data: {
+          ...(body.name !== undefined
+            ? {
+                name: body.name.trim(),
+              }
+            : {}),
+          ...(body.institution !== undefined
+            ? {
+                institution: body.institution?.trim() || null,
+              }
+            : {}),
+          ...(body.accountType !== undefined
+            ? {
+                accountType: body.accountType.trim(),
+              }
+            : {}),
+          ...(body.isDebt !== undefined
+            ? {
+                isDebt: body.isDebt,
+              }
+            : {}),
+          ...(body.isDebtTarget !== undefined
+            ? {
+                isDebtTarget: body.isDebtTarget,
+              }
+            : {}),
+          ...(body.startingBalance !== undefined
+            ? {
+                startingBalance: body.startingBalance,
+              }
+            : {}),
+          ...(body.currentBalance !== undefined
+            ? {
+                currentBalance: body.currentBalance,
+              }
+            : {}),
+          ...(body.minimumPayment !== undefined
+            ? {
+                minimumPayment: body.minimumPayment,
+              }
+            : {}),
+          ...(body.interestRate !== undefined
+            ? {
+                interestRate: body.interestRate,
+              }
+            : {}),
+          ...(body.notes !== undefined
+            ? {
+                notes: body.notes?.trim() || null,
+              }
+            : {}),
+        },
+      });
+
+      return NextResponse.json({
+        account,
+      });
+    }
+
+    if (body.type === "bill") {
+      const existing = await prisma.bill.findFirst({
+        where: {
+          id: body.id,
+          userId: user.id,
+        },
+      });
+
+      if (!existing) {
+        return NextResponse.json(
+          {
+            error: "Bill not found.",
+          },
+          {
+            status: 404,
+          },
+        );
+      }
+
+      const bill = await prisma.bill.update({
+        where: {
+          id: existing.id,
+        },
+        data: {
+          ...(body.name !== undefined
+            ? {
+                name: body.name.trim(),
+              }
+            : {}),
+          ...(body.amount !== undefined
+            ? {
+                amount: body.amount,
+              }
+            : {}),
+          ...(body.frequency !== undefined
+            ? {
+                frequency: body.frequency.trim(),
+              }
+            : {}),
+          ...(body.dueDay !== undefined
+            ? {
+                dueDay: body.dueDay,
+              }
+            : {}),
+          ...(body.nextDueAt !== undefined
+            ? {
+                nextDueAt: body.nextDueAt
+                  ? new Date(body.nextDueAt)
+                  : null,
+              }
+            : {}),
+          ...(body.isAutopay !== undefined
+            ? {
+                isAutopay: body.isAutopay,
+              }
+            : {}),
+          ...(body.isActive !== undefined
+            ? {
+                isActive: body.isActive,
+              }
+            : {}),
+          ...(body.lastPaidAt !== undefined
+            ? {
+                lastPaidAt: body.lastPaidAt
+                  ? new Date(body.lastPaidAt)
+                  : null,
+              }
+            : {}),
+          ...(body.accountId !== undefined
+            ? {
+                accountId: body.accountId || null,
+              }
+            : {}),
+          ...(body.notes !== undefined
+            ? {
+                notes: body.notes?.trim() || null,
+              }
+            : {}),
+        },
+        include: {
+          account: true,
+        },
+      });
+
+      return NextResponse.json({
+        bill,
+      });
+    }
+
+    return NextResponse.json(
+      {
+        error: "Invalid finance record type.",
+      },
+      {
+        status: 400,
+      },
+    );
+  } catch (error) {
+    console.error("Failed to update finance record:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to update finance record.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      type?: "account" | "bill";
+      id?: string;
+    };
+
+    if (!body.id || !body.type) {
+      return NextResponse.json(
+        {
+          error: "Finance record ID and type are required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const user = await getOrCreateDefaultUser();
+
+    if (body.type === "account") {
+      const existing = await prisma.financialAccount.findFirst({
+        where: {
+          id: body.id,
+          userId: user.id,
+        },
+      });
+
+      if (!existing) {
+        return NextResponse.json(
+          {
+            error: "Financial account not found.",
+          },
+          {
+            status: 404,
+          },
+        );
+      }
+
+      await prisma.financialAccount.delete({
+        where: {
+          id: existing.id,
+        },
+      });
+
+      return NextResponse.json({
+        deleted: true,
+      });
+    }
+
+    if (body.type === "bill") {
+      const existing = await prisma.bill.findFirst({
+        where: {
+          id: body.id,
+          userId: user.id,
+        },
+      });
+
+      if (!existing) {
+        return NextResponse.json(
+          {
+            error: "Bill not found.",
+          },
+          {
+            status: 404,
+          },
+        );
+      }
+
+      await prisma.bill.delete({
+        where: {
+          id: existing.id,
+        },
+      });
+
+      return NextResponse.json({
+        deleted: true,
+      });
+    }
+
+    return NextResponse.json(
+      {
+        error: "Invalid finance record type.",
+      },
+      {
+        status: 400,
+      },
+    );
+  } catch (error) {
+    console.error("Failed to delete finance record:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to delete finance record.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}

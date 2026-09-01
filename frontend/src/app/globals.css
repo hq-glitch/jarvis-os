@@ -1,26 +1,61 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ranch-forest: #1e3a34;
+  --ranch-forest-deep: #142a26;
+  --ranch-gold: #b08d57;
+  --ranch-ivory: #f8f5ef;
+  --ranch-charcoal: #2c2c2c;
+  --ranch-stone: #d7d0c5;
+  --ranch-sage: #7a826e;
+  --background: var(--ranch-ivory);
+  --foreground: var(--ranch-charcoal);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-ranch-forest: var(--ranch-forest);
+  --color-ranch-gold: var(--ranch-gold);
+  --color-ranch-ivory: var(--ranch-ivory);
+  --color-ranch-charcoal: var(--ranch-charcoal);
+  --color-ranch-stone: var(--ranch-stone);
+  --color-ranch-sage: var(--ranch-sage);
+  --font-sans: var(--font-lato);
+  --font-display: var(--font-cormorant);
+  --font-serif: var(--font-libre);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--ranch-ivory);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgb(176 141 87 / 10%),
+      transparent 32rem
+    ),
+    var(--ranch-ivory);
+  color: var(--ranch-charcoal);
+  font-family: var(--font-lato), Arial, sans-serif;
+}
+
+::selection {
+  background: rgb(176 141 87 / 30%);
+  color: var(--ranch-forest-deep);
+}
+
+.font-display {
+  font-family: var(--font-cormorant), Georgia, serif;
+}
+
+.font-editorial {
+  font-family: var(--font-libre), Georgia, serif;
 }

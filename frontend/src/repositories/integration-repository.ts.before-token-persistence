@@ -1,0 +1,272 @@
+import { prisma } from "@/lib/db";
+import {
+  CalendarAccessRole,
+  IntegrationProvider,
+  IntegrationStatus,
+} from "@/generated/prisma/client";
+
+export interface UpsertGoogleIntegrationInput {
+  userId: string;
+  providerAccountId: string;
+  email: string;
+  displayName: string | null;
+  encryptedCredentialPayload: string;
+}
+
+export interface UpsertGoogleCalendarInput {
+  integrationId: string;
+  userId: string;
+  externalId: string;
+  name: string;
+  description: string | null;
+  timeZone: string | null;
+  providerColor: string | null;
+  accessRole: CalendarAccessRole;
+  isPrimary: boolean;
+  isReadOnly: boolean;
+}
+
+export interface UpsertAppleIntegrationInput {
+  userId: string;
+  providerAccountId: string;
+  email: string;
+  displayName: string | null;
+  encryptedCredentialPayload: string;
+}
+
+export interface UpsertAppleCalendarInput {
+  integrationId: string;
+  userId: string;
+  externalId: string;
+  name: string;
+  description: string | null;
+  timeZone: string | null;
+  providerColor: string | null;
+  isReadOnly: boolean;
+}
+
+export async function getIntegrations(userId: string) {
+  return prisma.integration.findMany({
+    where: {
+      userId,
+    },
+    include: {
+      calendars: {
+        orderBy: {
+          name: "asc",
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
+}
+
+export async function getIntegration(id: string) {
+  return prisma.integration.findUnique({
+    where: {
+      id,
+    },
+    include: {
+      credential: true,
+      calendars: true,
+    },
+  });
+}
+
+export async function upsertGoogleIntegration(
+  input: UpsertGoogleIntegrationInput,
+) {
+  return prisma.integration.upsert({
+    where: {
+      userId_provider_providerAccountId: {
+        userId: input.userId,
+        provider: IntegrationProvider.GOOGLE,
+        providerAccountId: input.providerAccountId,
+      },
+    },
+    update: {
+      email: input.email,
+      displayName: input.displayName,
+      status: IntegrationStatus.ACTIVE,
+      lastError: null,
+      credential: {
+        upsert: {
+          create: {
+            encryptedPayload: input.encryptedCredentialPayload,
+          },
+          update: {
+            encryptedPayload: input.encryptedCredentialPayload,
+          },
+        },
+      },
+    },
+    create: {
+      userId: input.userId,
+      provider: IntegrationProvider.GOOGLE,
+      providerAccountId: input.providerAccountId,
+      email: input.email,
+      displayName: input.displayName,
+      status: IntegrationStatus.ACTIVE,
+      credential: {
+        create: {
+          encryptedPayload: input.encryptedCredentialPayload,
+        },
+      },
+    },
+    include: {
+      credential: true,
+      calendars: true,
+    },
+  });
+}
+
+export async function upsertGoogleCalendar(
+  input: UpsertGoogleCalendarInput,
+) {
+  return prisma.externalCalendar.upsert({
+    where: {
+      integrationId_externalId: {
+        integrationId: input.integrationId,
+        externalId: input.externalId,
+      },
+    },
+    update: {
+      name: input.name,
+      description: input.description,
+      timeZone: input.timeZone,
+      providerColor: input.providerColor,
+      accessRole: input.accessRole,
+      isPrimary: input.isPrimary,
+      isReadOnly: input.isReadOnly,
+      lastError: null,
+    },
+    create: {
+      integrationId: input.integrationId,
+      userId: input.userId,
+      externalId: input.externalId,
+      name: input.name,
+      description: input.description,
+      timeZone: input.timeZone,
+      providerColor: input.providerColor,
+      accessRole: input.accessRole,
+      isPrimary: input.isPrimary,
+      isReadOnly: input.isReadOnly,
+    },
+  });
+}
+
+export async function upsertAppleIntegration(
+  input: UpsertAppleIntegrationInput,
+) {
+  return prisma.integration.upsert({
+    where: {
+      userId_provider_providerAccountId: {
+        userId: input.userId,
+        provider: IntegrationProvider.APPLE,
+        providerAccountId: input.providerAccountId,
+      },
+    },
+    update: {
+      email: input.email,
+      displayName: input.displayName,
+      status: IntegrationStatus.ACTIVE,
+      lastError: null,
+      credential: {
+        upsert: {
+          create: {
+            encryptedPayload: input.encryptedCredentialPayload,
+          },
+          update: {
+            encryptedPayload: input.encryptedCredentialPayload,
+          },
+        },
+      },
+    },
+    create: {
+      userId: input.userId,
+      provider: IntegrationProvider.APPLE,
+      providerAccountId: input.providerAccountId,
+      email: input.email,
+      displayName: input.displayName,
+      status: IntegrationStatus.ACTIVE,
+      credential: {
+        create: {
+          encryptedPayload: input.encryptedCredentialPayload,
+        },
+      },
+    },
+    include: {
+      credential: true,
+      calendars: true,
+    },
+  });
+}
+
+export async function upsertAppleCalendar(
+  input: UpsertAppleCalendarInput,
+) {
+  return prisma.externalCalendar.upsert({
+    where: {
+      integrationId_externalId: {
+        integrationId: input.integrationId,
+        externalId: input.externalId,
+      },
+    },
+    update: {
+      name: input.name,
+      description: input.description,
+      timeZone: input.timeZone,
+      providerColor: input.providerColor,
+      accessRole: input.isReadOnly
+        ? CalendarAccessRole.READER
+        : CalendarAccessRole.WRITER,
+      isPrimary: false,
+      isReadOnly: input.isReadOnly,
+      lastError: null,
+    },
+    create: {
+      integrationId: input.integrationId,
+      userId: input.userId,
+      externalId: input.externalId,
+      name: input.name,
+      description: input.description,
+      timeZone: input.timeZone,
+      providerColor: input.providerColor,
+      accessRole: input.isReadOnly
+        ? CalendarAccessRole.READER
+        : CalendarAccessRole.WRITER,
+      isPrimary: false,
+      isReadOnly: input.isReadOnly,
+    },
+  });
+}
+
+export async function markIntegrationError(
+  integrationId: string,
+  message: string,
+) {
+  return prisma.integration.update({
+    where: {
+      id: integrationId,
+    },
+    data: {
+      status: IntegrationStatus.ERROR,
+      lastError: message,
+    },
+  });
+}
+export async function setCalendarEnabled(
+  calendarId: string,
+  isEnabled: boolean,
+) {
+  return prisma.externalCalendar.update({
+    where: {
+      id: calendarId,
+    },
+    data: {
+      isEnabled,
+    },
+  });
+}

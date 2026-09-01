@@ -1,0 +1,271 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { prisma } from "@/lib/prisma";
+import { getOrCreateDefaultUser } from "@/repositories/user-repository";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const user = await getOrCreateDefaultUser();
+
+  const tasks = await prisma.task.findMany({
+    where: {
+      userId: user.id,
+    },
+    orderBy: [
+      {
+        completedAt: "asc",
+      },
+      {
+        dueAt: "asc",
+      },
+      {
+        createdAt: "desc",
+      },
+    ],
+  });
+
+  return NextResponse.json({
+    tasks,
+  });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      title?: string;
+      description?: string | null;
+      priority?: string | null;
+      dueAt?: string | null;
+      sourceType?: string | null;
+      sourceAccount?: string | null;
+      sourceMessageId?: string | null;
+      sourceThreadId?: string | null;
+      projectId?: string | null;
+    };
+
+    const title = body.title?.trim();
+
+    if (!title) {
+      return NextResponse.json(
+        {
+          error: "Task title is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const user = await getOrCreateDefaultUser();
+
+    const existing =
+      body.sourceMessageId && body.sourceAccount
+        ? await prisma.task.findFirst({
+            where: {
+              userId: user.id,
+              sourceMessageId: body.sourceMessageId,
+              sourceAccount: body.sourceAccount,
+            },
+          })
+        : null;
+
+    if (existing) {
+      return NextResponse.json({
+        task: existing,
+        alreadyExists: true,
+      });
+    }
+
+    const task = await prisma.task.create({
+      data: {
+        userId: user.id,
+        title,
+        description: body.description?.trim() || null,
+        priority: body.priority?.trim() || "NORMAL",
+        dueAt: body.dueAt ? new Date(body.dueAt) : null,
+        sourceType: body.sourceType?.trim() || null,
+        sourceAccount: body.sourceAccount?.trim() || null,
+        sourceMessageId: body.sourceMessageId?.trim() || null,
+        sourceThreadId: body.sourceThreadId?.trim() || null,
+        projectId: body.projectId?.trim() || null,
+      },
+    });
+
+    return NextResponse.json({
+      task,
+      alreadyExists: false,
+    });
+  } catch (error) {
+    console.error("Failed to create task:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to create task.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      id?: string;
+      title?: string;
+      description?: string | null;
+      priority?: string;
+      dueAt?: string | null;
+      completed?: boolean;
+      projectId?: string | null;
+    };
+
+    if (!body.id) {
+      return NextResponse.json(
+        {
+          error: "Task ID is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const user = await getOrCreateDefaultUser();
+
+    const existing = await prisma.task.findFirst({
+      where: {
+        id: body.id,
+        userId: user.id,
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        {
+          error: "Task not found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    const task = await prisma.task.update({
+      where: {
+        id: existing.id,
+      },
+      data: {
+        ...(body.title !== undefined
+          ? {
+              title: body.title.trim(),
+            }
+          : {}),
+        ...(body.description !== undefined
+          ? {
+              description: body.description?.trim() || null,
+            }
+          : {}),
+        ...(body.priority !== undefined
+          ? {
+              priority: body.priority.trim() || "NORMAL",
+            }
+          : {}),
+        ...(body.dueAt !== undefined
+          ? {
+              dueAt: body.dueAt ? new Date(body.dueAt) : null,
+            }
+          : {}),
+        ...(body.completed !== undefined
+          ? {
+              status: body.completed ? "DONE" : "TODO",
+              completedAt: body.completed ? new Date() : null,
+            }
+          : {}),
+        ...(body.projectId !== undefined
+          ? {
+              projectId: body.projectId?.trim() || null,
+            }
+          : {}),
+      },
+    });
+
+    return NextResponse.json({
+      task,
+    });
+  } catch (error) {
+    console.error("Failed to update task:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to update task.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      id?: string;
+    };
+
+    if (!body.id) {
+      return NextResponse.json(
+        {
+          error: "Task ID is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const user = await getOrCreateDefaultUser();
+
+    const existing = await prisma.task.findFirst({
+      where: {
+        id: body.id,
+        userId: user.id,
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        {
+          error: "Task not found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    await prisma.task.delete({
+      where: {
+        id: existing.id,
+      },
+    });
+
+    return NextResponse.json({
+      deleted: true,
+    });
+  } catch (error) {
+    console.error("Failed to delete task:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to delete task.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}

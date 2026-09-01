@@ -1,0 +1,2594 @@
+"use client";
+
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { usePlaidLink } from "react-plaid-link";
+
+type FinancialAccount = {
+  id: string;
+  name: string;
+  institution: string | null;
+  accountType: string;
+  isDebt: boolean;
+  isDebtTarget: boolean;
+  startingBalance: number;
+  currentBalance: number;
+  minimumPayment: number | null;
+  interestRate: number | null;
+  promoBalance: number | null;
+  promoInterestRate: number | null;
+  promoEndsAt: string | null;
+  notes: string | null;
+  plaidAccountId: string | null;
+  plaidMask: string | null;
+};
+
+type PlaidItem = {
+  id: string;
+  institutionName: string | null;
+  institutionId: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+};
+
+type RecurringBillSuggestion = {
+  id: string;
+  plaidStreamId: string;
+  merchantName: string | null;
+  description: string;
+  frequency: string;
+  averageAmount: number;
+  lastAmount: number | null;
+  firstDate: string | null;
+  lastDate: string | null;
+  predictedNextDate: string | null;
+  status: string;
+  reviewStatus: string;
+};
+
+type Bill = {
+  id: string;
+  name: string;
+  amount: number;
+  frequency: string;
+  dueDay: number | null;
+  nextDueAt: string | null;
+  isAutopay: boolean;
+  isActive: boolean;
+  lastPaidAt: string | null;
+  notes: string | null;
+  accountId: string | null;
+  account: FinancialAccount | null;
+};
+
+function money(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function accountTypeLabel(value: string) {
+  const labels: Record<string, string> = {
+    CHECKING: "Checking",
+    SAVINGS: "Savings",
+    INVESTMENT: "Investment",
+    RETIREMENT: "Retirement",
+    REAL_ESTATE: "Real Estate",
+    VEHICLE: "Vehicle",
+    OTHER_ASSET: "Other Asset",
+    CREDIT_CARD: "Credit Card",
+    LOAN: "Loan",
+    MORTGAGE: "Mortgage",
+    TAX_DEBT: "Tax Debt",
+    OTHER_DEBT: "Other Debt",
+    OTHER: "Other",
+  };
+
+  return labels[value] ?? value.replaceAll("_", " ");
+}
+
+function percent(value: number) {
+  return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`;
+}
+
+function dueLabel(value: string | null, dueDay: number | null) {
+  if (value) {
+    const date = new Date(value);
+
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+
+  if (dueDay) {
+    return `Day ${dueDay}`;
+  }
+
+  return "No due date";
+}
+
+export default function FinancePage() {
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [plaidItems, setPlaidItems] = useState<PlaidItem[]>([]);
+  const [recurringSuggestions, setRecurringSuggestions] =
+    useState<RecurringBillSuggestion[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [plaidLinkToken, setPlaidLinkToken] =
+    useState<string | null>(null);
+  const [isConnectingBank, setIsConnectingBank] =
+    useState(false);
+  const [plaidMode, setPlaidMode] =
+    useState<"connect" | "update">("connect");
+
+  const [showAccountForm, setShowAccountForm] = useState(false);
+  const [showBillForm, setShowBillForm] = useState(false);
+
+  const [accountName, setAccountName] = useState("");
+  const [institution, setInstitution] = useState("");
+  const [accountType, setAccountType] = useState("CHECKING");
+  const [isDebt, setIsDebt] = useState(false);
+  const [startingBalance, setStartingBalance] = useState("");
+  const [currentBalance, setCurrentBalance] = useState("");
+  const [minimumPayment, setMinimumPayment] = useState("");
+  const [interestRate, setInterestRate] = useState("");
+  const [accountNotes, setAccountNotes] = useState("");
+
+  const [billName, setBillName] = useState("");
+  const [billAmount, setBillAmount] = useState("");
+  const [billFrequency, setBillFrequency] = useState("MONTHLY");
+  const [billNotes, setBillNotes] = useState("");
+  const [billDueDate, setBillDueDate] = useState("");
+  const [billDueDay, setBillDueDay] = useState("");
+  const [billAutopay, setBillAutopay] = useState(false);
+  const [billAccountId, setBillAccountId] = useState("");
+
+  const [editingAccount, setEditingAccount] =
+    useState<FinancialAccount | null>(null);
+  const [editAccountType, setEditAccountType] = useState("");
+  const [editCurrentBalance, setEditCurrentBalance] = useState("");
+  const [editStartingBalance, setEditStartingBalance] = useState("");
+  const [editMinimumPayment, setEditMinimumPayment] = useState("");
+  const [editInterestRate, setEditInterestRate] = useState("");
+  const [editPromoBalance, setEditPromoBalance] = useState("");
+  const [editPromoInterestRate, setEditPromoInterestRate] = useState("");
+  const [editPromoEndsAt, setEditPromoEndsAt] = useState("");
+
+  const [editingBill, setEditingBill] = useState<Bill | null>(null);
+  const [editBillName, setEditBillName] = useState("");
+  const [editBillAmount, setEditBillAmount] = useState("");
+  const [editBillFrequency, setEditBillFrequency] = useState("MONTHLY");
+  const [editBillDueDate, setEditBillDueDate] = useState("");
+  const [editBillDueDay, setEditBillDueDay] = useState("");
+  const [editBillAutopay, setEditBillAutopay] = useState(false);
+  const [editBillAccountId, setEditBillAccountId] = useState("");
+  const [editBillNotes, setEditBillNotes] = useState("");
+  const [editBillActive, setEditBillActive] = useState(true);
+
+  const handlePlaidSuccess = useCallback(
+    async (
+      publicToken: string | null,
+      metadata: {
+        institution?: {
+          institution_id: string;
+          name: string;
+        } | null;
+      },
+    ) => {
+      if (!publicToken) {
+        setError("Plaid did not return a public token.");
+        return;
+      }
+
+      setIsConnectingBank(true);
+      setError(null);
+
+      if (plaidMode === "update") {
+        setPlaidLinkToken(null);
+        setPlaidMode("connect");
+        setIsConnectingBank(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          "/api/plaid/exchange-public-token",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              publicToken,
+              institutionId:
+                metadata.institution?.institution_id ?? null,
+              institutionName:
+                metadata.institution?.name ?? null,
+            }),
+          },
+        );
+
+        const data = (await response.json()) as {
+          error?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ?? "Unable to connect bank.",
+          );
+        }
+
+        setPlaidLinkToken(null);
+        await loadFinance();
+      } catch (connectError) {
+        setError(
+          connectError instanceof Error
+            ? connectError.message
+            : "Unable to connect bank.",
+        );
+      } finally {
+        setIsConnectingBank(false);
+      }
+    },
+    [plaidMode],
+  );
+
+  const {
+    open: openPlaid,
+    ready: plaidReady,
+  } = usePlaidLink({
+    token: plaidLinkToken,
+    onSuccess: handlePlaidSuccess,
+    onExit: () => {
+      setIsConnectingBank(false);
+    },
+  });
+
+  async function enableBillDetails(itemId: string) {
+    setError(null);
+    setIsConnectingBank(true);
+    setPlaidMode("update");
+
+    try {
+      const response = await fetch(
+        "/api/plaid/create-update-link-token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            itemId,
+          }),
+        },
+      );
+
+      const data = (await response.json()) as {
+        linkToken?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !data.linkToken) {
+        throw new Error(
+          data.error ?? "Unable to enable bill details.",
+        );
+      }
+
+      setPlaidLinkToken(data.linkToken);
+    } catch (consentError) {
+      setPlaidMode("connect");
+      setIsConnectingBank(false);
+
+      setError(
+        consentError instanceof Error
+          ? consentError.message
+          : "Unable to enable bill details.",
+      );
+    }
+  }
+
+  async function connectBank() {
+    setError(null);
+    setIsConnectingBank(true);
+    setPlaidMode("connect");
+
+    try {
+      const response = await fetch(
+        "/api/plaid/create-link-token",
+        {
+          method: "POST",
+        },
+      );
+
+      const data = (await response.json()) as {
+        linkToken?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !data.linkToken) {
+        throw new Error(
+          data.error ?? "Unable to start Plaid Link.",
+        );
+      }
+
+      setPlaidLinkToken(data.linkToken);
+    } catch (connectError) {
+      setError(
+        connectError instanceof Error
+          ? connectError.message
+          : "Unable to start Plaid Link.",
+      );
+      setIsConnectingBank(false);
+    }
+  }
+
+  useEffect(() => {
+    if (plaidLinkToken && plaidReady) {
+      openPlaid();
+      setIsConnectingBank(false);
+    }
+  }, [plaidLinkToken, plaidReady, openPlaid]);
+
+  async function loadFinance() {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      try {
+        await Promise.all([
+          fetch("/api/plaid/sync-balances", {
+            method: "POST",
+            cache: "no-store",
+          }),
+          fetch("/api/plaid/sync-liabilities", {
+            method: "POST",
+            cache: "no-store",
+          }),
+        ]);
+      } catch {
+        // Keep showing the last saved finance data if
+        // Plaid is temporarily unavailable.
+      }
+
+      const response = await fetch("/api/finance", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to load finance data.");
+      }
+
+      const data = (await response.json()) as {
+        accounts: FinancialAccount[];
+        bills: Bill[];
+        plaidItems: PlaidItem[];
+        recurringSuggestions: RecurringBillSuggestion[];
+      };
+
+      setAccounts(data.accounts ?? []);
+      setBills(data.bills ?? []);
+      setPlaidItems(data.plaidItems ?? []);
+      setRecurringSuggestions(
+        data.recurringSuggestions ?? [],
+      );
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load finance data.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadFinance();
+  }, []);
+
+  const debtSummary = useMemo(() => {
+    const debts = accounts.filter((account) => account.isDebt);
+
+    const startingDebt = debts.reduce(
+      (total, account) => total + account.startingBalance,
+      0,
+    );
+
+    const currentDebt = debts.reduce(
+      (total, account) => total + account.currentBalance,
+      0,
+    );
+
+    const paidOff = Math.max(0, startingDebt - currentDebt);
+
+    const progress =
+      startingDebt > 0 ? (paidOff / startingDebt) * 100 : 0;
+
+    const target =
+      debts.find((account) => account.isDebtTarget) ?? null;
+
+    const targetPaidOff = target
+      ? Math.max(0, target.startingBalance - target.currentBalance)
+      : 0;
+
+    const targetProgress =
+      target && target.startingBalance > 0
+        ? (targetPaidOff / target.startingBalance) * 100
+        : 0;
+
+    return {
+      debts,
+      startingDebt,
+      currentDebt,
+      paidOff,
+      progress,
+      target,
+      targetPaidOff,
+      targetProgress,
+    };
+  }, [accounts]);
+
+  const assetSummary = useMemo(() => {
+    const assets = accounts.filter((account) => !account.isDebt);
+
+    const liquidAssets = assets.filter((account) =>
+      ["CHECKING", "SAVINGS"].includes(account.accountType),
+    );
+
+    const nonLiquidAssets = assets.filter(
+      (account) =>
+        !["CHECKING", "SAVINGS"].includes(account.accountType),
+    );
+
+    const liquidTotal = liquidAssets.reduce(
+      (total, account) => total + Math.max(0, account.currentBalance),
+      0,
+    );
+
+    const nonLiquidTotal = nonLiquidAssets.reduce(
+      (total, account) => total + Math.max(0, account.currentBalance),
+      0,
+    );
+
+    const totalAssets = liquidTotal + nonLiquidTotal;
+
+    const netWorth = totalAssets - debtSummary.currentDebt;
+
+    const debtToAssetsRatio =
+      totalAssets > 0
+        ? (debtSummary.currentDebt / totalAssets) * 100
+        : 0;
+
+    return {
+      assets,
+      liquidAssets,
+      nonLiquidAssets,
+      liquidTotal,
+      nonLiquidTotal,
+      totalAssets,
+      netWorth,
+      debtToAssetsRatio,
+    };
+  }, [accounts, debtSummary.currentDebt]);
+
+  function isBillPaidThisMonth(bill: Bill) {
+    if (!bill.lastPaidAt) {
+      return false;
+    }
+
+    const paidDate = new Date(bill.lastPaidAt);
+    const now = new Date();
+
+    if (Number.isNaN(paidDate.getTime())) {
+      return false;
+    }
+
+    return (
+      paidDate.getFullYear() === now.getFullYear() &&
+      paidDate.getMonth() === now.getMonth()
+    );
+  }
+
+  const upcomingBills = useMemo(() => {
+    return [...bills].sort((a, b) => {
+      const aPaid = isBillPaidThisMonth(a);
+      const bPaid = isBillPaidThisMonth(b);
+
+      if (aPaid !== bPaid) {
+        return aPaid ? 1 : -1;
+      }
+
+      if (a.nextDueAt && b.nextDueAt) {
+        return (
+          new Date(a.nextDueAt).getTime() -
+          new Date(b.nextDueAt).getTime()
+        );
+      }
+
+      if (a.nextDueAt) {
+        return -1;
+      }
+
+      if (b.nextDueAt) {
+        return 1;
+      }
+
+      return (a.dueDay ?? 99) - (b.dueDay ?? 99);
+    });
+  }, [bills]);
+
+  async function toggleBillPaid(bill: Bill) {
+    setError(null);
+
+    const currentlyPaid = isBillPaidThisMonth(bill);
+
+    try {
+      const response = await fetch("/api/finance", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "bill",
+          id: bill.id,
+          lastPaidAt: currentlyPaid
+            ? null
+            : new Date().toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update bill payment status.");
+      }
+
+      await loadFinance();
+    } catch (paymentError) {
+      setError(
+        paymentError instanceof Error
+          ? paymentError.message
+          : "Unable to update bill payment status.",
+      );
+    }
+  }
+
+  async function reviewRecurringSuggestion(
+    suggestionId: string,
+    action: "approve" | "ignore",
+  ) {
+    setError(null);
+
+    try {
+      const response = await fetch(
+        "/api/finance/recurring-suggestions",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id: suggestionId,
+            action,
+          }),
+        },
+      );
+
+      const data = (await response.json()) as {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ??
+            "Unable to review recurring charge.",
+        );
+      }
+
+      await loadFinance();
+    } catch (reviewError) {
+      setError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : "Unable to review recurring charge.",
+      );
+    }
+  }
+
+  async function createAccount(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    if (!accountName.trim()) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/finance", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "account",
+          name: accountName.trim(),
+          institution: institution.trim() || null,
+          accountType,
+          isDebt: [
+            "CREDIT_CARD",
+            "LOAN",
+            "MORTGAGE",
+            "TAX_DEBT",
+            "OTHER_DEBT",
+          ].includes(accountType),
+          startingBalance: Number(startingBalance || 0),
+          currentBalance: Number(currentBalance || 0),
+          minimumPayment: minimumPayment
+            ? Number(minimumPayment)
+            : null,
+          interestRate: interestRate
+            ? Number(interestRate)
+            : null,
+          notes: accountNotes.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = (await response.json()) as {
+          error?: string;
+        };
+
+        throw new Error(
+          data.error ?? "Unable to create account.",
+        );
+      }
+
+      setAccountName("");
+      setInstitution("");
+      setAccountType("CHECKING");
+      setIsDebt(false);
+      setStartingBalance("");
+      setCurrentBalance("");
+      setMinimumPayment("");
+      setInterestRate("");
+      setAccountNotes("");
+      setShowAccountForm(false);
+
+      await loadFinance();
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Unable to create account.",
+      );
+    }
+  }
+
+  async function createBill(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    if (!billName.trim() || !billAmount) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/finance", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "bill",
+          name: billName.trim(),
+          amount: Number(billAmount),
+          frequency: billFrequency,
+          dueDay: billDueDay ? Number(billDueDay) : null,
+          nextDueAt: billDueDate
+            ? new Date(`${billDueDate}T12:00:00`).toISOString()
+            : null,
+          isAutopay: billAutopay,
+          accountId: billAccountId || null,
+          notes: billNotes.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = (await response.json()) as {
+          error?: string;
+        };
+
+        throw new Error(
+          data.error ?? "Unable to create bill.",
+        );
+      }
+
+      setBillName("");
+      setBillAmount("");
+      setBillFrequency("MONTHLY");
+      setBillNotes("");
+      setBillDueDate("");
+      setBillDueDay("");
+      setBillAutopay(false);
+      setBillAccountId("");
+      setShowBillForm(false);
+
+      await loadFinance();
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Unable to create bill.",
+      );
+    }
+  }
+
+  async function setDebtTarget(account: FinancialAccount) {
+    try {
+      const response = await fetch("/api/finance", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "account",
+          id: account.id,
+          isDebtTarget: true,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to set debt target.");
+      }
+
+      await loadFinance();
+    } catch (targetError) {
+      setError(
+        targetError instanceof Error
+          ? targetError.message
+          : "Unable to set debt target.",
+      );
+    }
+  }
+
+  function openAccountEditor(account: FinancialAccount) {
+    setEditingAccount(account);
+    setEditAccountType(account.accountType);
+    setEditCurrentBalance(String(account.currentBalance));
+    setEditStartingBalance(String(account.startingBalance));
+    setEditMinimumPayment(
+      account.minimumPayment !== null
+        ? String(account.minimumPayment)
+        : "",
+    );
+    setEditInterestRate(
+      account.interestRate !== null
+        ? String(account.interestRate)
+        : "",
+    );
+
+    setEditPromoBalance(
+      account.promoBalance !== null
+        ? String(account.promoBalance)
+        : "",
+    );
+
+    setEditPromoInterestRate(
+      account.promoInterestRate !== null
+        ? String(account.promoInterestRate)
+        : "",
+    );
+
+    setEditPromoEndsAt(
+      account.promoEndsAt
+        ? account.promoEndsAt.slice(0, 10)
+        : "",
+    );
+  }
+
+  async function saveAccountChanges() {
+    if (!editingAccount) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/finance", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "account",
+          id: editingAccount.id,
+          accountType: editAccountType,
+          startingBalance: Number(editStartingBalance || 0),
+          currentBalance: Number(editCurrentBalance || 0),
+          minimumPayment: editMinimumPayment
+            ? Number(editMinimumPayment)
+            : null,
+          interestRate: editInterestRate
+            ? Number(editInterestRate)
+            : null,
+          promoBalance: editPromoBalance
+            ? Number(editPromoBalance)
+            : null,
+          promoInterestRate: editPromoInterestRate
+            ? Number(editPromoInterestRate)
+            : null,
+          promoEndsAt: editPromoEndsAt || null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update account.");
+      }
+
+      setEditingAccount(null);
+      await loadFinance();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to update account.",
+      );
+    }
+  }
+
+
+  function openBillEditor(bill: Bill) {
+    setEditingBill(bill);
+    setEditBillName(bill.name);
+    setEditBillAmount(String(bill.amount));
+    setEditBillFrequency(bill.frequency || "MONTHLY");
+
+    setEditBillDueDate(
+      bill.nextDueAt
+        ? bill.nextDueAt.slice(0, 10)
+        : "",
+    );
+
+    setEditBillDueDay(
+      bill.dueDay !== null
+        ? String(bill.dueDay)
+        : "",
+    );
+
+    setEditBillAutopay(bill.isAutopay);
+    setEditBillAccountId(bill.accountId ?? "");
+    setEditBillNotes(bill.notes ?? "");
+    setEditBillActive(bill.isActive);
+  }
+
+  async function saveBillChanges() {
+    if (!editingBill) {
+      return;
+    }
+
+    if (!editBillName.trim() || !editBillAmount) {
+      setError("Bill name and amount are required.");
+      return;
+    }
+
+    setError(null);
+
+    try {
+      const response = await fetch("/api/finance", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "bill",
+          id: editingBill.id,
+          name: editBillName.trim(),
+          amount: Number(editBillAmount),
+          frequency: editBillFrequency,
+          dueDay: editBillDueDay
+            ? Number(editBillDueDay)
+            : null,
+          nextDueAt: editBillDueDate
+            ? new Date(
+                `${editBillDueDate}T12:00:00`,
+              ).toISOString()
+            : null,
+          isAutopay: editBillAutopay,
+          isActive: editBillActive,
+          accountId: editBillAccountId || null,
+          notes: editBillNotes.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = (await response.json()) as {
+          error?: string;
+        };
+
+        throw new Error(
+          data.error ?? "Unable to update bill.",
+        );
+      }
+
+      setEditingBill(null);
+      await loadFinance();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to update bill.",
+      );
+    }
+  }
+
+  const debtAccountTypes = [
+    "CREDIT_CARD",
+    "LOAN",
+    "MORTGAGE",
+    "TAX_DEBT",
+    "OTHER_DEBT",
+  ];
+
+  const liquidAccountTypes = [
+    "CHECKING",
+    "SAVINGS",
+  ];
+
+  const isDebtAccount = (account: FinancialAccount) =>
+    account.isDebt || debtAccountTypes.includes(account.accountType);
+
+  const activeDebtAccounts = accounts.filter(
+    (account) =>
+      isDebtAccount(account) &&
+      Math.abs(account.currentBalance) > 0.005,
+  );
+
+  const monitoringDebtAccounts = accounts.filter(
+    (account) =>
+      isDebtAccount(account) &&
+      Math.abs(account.currentBalance) <= 0.005,
+  );
+
+  const liquidAccounts = accounts.filter(
+    (account) =>
+      !isDebtAccount(account) &&
+      liquidAccountTypes.includes(account.accountType),
+  );
+
+  const nonLiquidAccounts = accounts.filter(
+    (account) =>
+      !isDebtAccount(account) &&
+      !liquidAccountTypes.includes(account.accountType),
+  );
+
+  function renderAccountCard(account: FinancialAccount) {
+    return (
+      <article
+        key={account.id}
+        className="rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="font-semibold">
+              {account.name}
+            </p>
+
+            <p className="mt-1 text-xs text-[#7A826E]">
+              {account.institution ?? accountTypeLabel(account.accountType)}
+            </p>
+          </div>
+
+          <p className="text-xl font-semibold text-[#1E3A34]">
+            {money(account.currentBalance)}
+          </p>
+        </div>
+
+        {account.isDebt && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {account.isDebtTarget ? (
+              <span className="rounded-full bg-[#B08D57] px-3 py-1 text-xs font-semibold text-white">
+                Current target
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void setDebtTarget(account)}
+                className="rounded-full border border-[#B08D57] px-3 py-1 text-xs text-[#7C5F33]"
+              >
+                Make current target
+              </button>
+            )}
+
+            {account.minimumPayment !== null && (
+              <span className="rounded-full border border-[#D7D0C5] bg-white px-3 py-1 text-xs text-[#6F776B]">
+                Min {money(account.minimumPayment)}
+              </span>
+            )}
+
+            {account.interestRate !== null && (
+              <span className="rounded-full border border-[#D7D0C5] bg-white px-3 py-1 text-xs text-[#6F776B]">
+                {account.interestRate}% APR
+              </span>
+            )}
+
+            {account.promoBalance !== null &&
+              account.promoInterestRate !== null && (
+                <span className="rounded-full border border-[#B08D57] bg-[#F8F1E5] px-3 py-1 text-xs font-medium text-[#7C5F33]">
+                  {money(account.promoBalance)} at{" "}
+                  {account.promoInterestRate}% promo
+                </span>
+              )}
+
+            {account.promoEndsAt && (
+              <span className="rounded-full border border-[#D7D0C5] bg-white px-3 py-1 text-xs text-[#6F776B]">
+                Promo ends{" "}
+                {new Date(account.promoEndsAt).toLocaleDateString("en-US", {
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
+            )}
+          </div>
+        )}
+
+        {account.plaidAccountId && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[#6F776B]">
+            <span className="rounded-full border border-[#C9D5CC] bg-[#EEF3EF] px-3 py-1 font-medium text-[#4F6656]">
+              Plaid synced
+            </span>
+
+            {account.plaidMask && (
+              <span>•••• {account.plaidMask}</span>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => openAccountEditor(account)}
+          className="mt-4 text-sm font-medium text-[#7C5F33]"
+        >
+          Edit account
+        </button>
+      </article>
+    );
+  }
+
+
+
+  type BillDebtQueueItem =
+    | {
+        kind: "bill";
+        key: string;
+        bill: Bill;
+        isPaid: boolean;
+        isMonitoring: boolean;
+        dueTime: number;
+        dueDay: number;
+      }
+    | {
+        kind: "debt";
+        key: string;
+        account: FinancialAccount;
+        bill: Bill | null;
+        isPaid: boolean;
+        isMonitoring: boolean;
+        dueTime: number;
+        dueDay: number;
+      };
+
+  function billDueTime(bill: Bill | null) {
+    if (!bill?.nextDueAt) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    const value = new Date(bill.nextDueAt).getTime();
+
+    return Number.isNaN(value)
+      ? Number.POSITIVE_INFINITY
+      : value;
+  }
+
+  const debtAccountsById = new Map(
+    accounts
+      .filter((account) => isDebtAccount(account))
+      .map((account) => [account.id, account]),
+  );
+
+  const linkedDebtBillIds = new Set(
+    bills
+      .filter(
+        (bill) =>
+          bill.accountId &&
+          debtAccountsById.has(bill.accountId),
+      )
+      .map((bill) => bill.id),
+  );
+
+  const debtQueueItems: BillDebtQueueItem[] = accounts
+    .filter((account) => isDebtAccount(account))
+    .map((account) => {
+      const linkedBill =
+        bills.find(
+          (bill) => bill.accountId === account.id,
+        ) ?? null;
+
+      const zeroBalance =
+        Math.abs(account.currentBalance) <= 0.005;
+
+      const hasActualBillDue =
+        linkedBill !== null &&
+        linkedBill.amount > 0;
+
+      return {
+        kind: "debt" as const,
+        key: `debt-${account.id}`,
+        account,
+        bill: linkedBill,
+        isPaid: linkedBill
+          ? isBillPaidThisMonth(linkedBill)
+          : false,
+        isMonitoring:
+          zeroBalance && !hasActualBillDue,
+        dueTime: billDueTime(linkedBill),
+        dueDay: linkedBill?.dueDay ?? 99,
+      };
+    });
+
+  const standaloneBillItems: BillDebtQueueItem[] = bills
+    .filter(
+      (bill) => !linkedDebtBillIds.has(bill.id),
+    )
+    .map((bill) => ({
+      kind: "bill" as const,
+      key: `bill-${bill.id}`,
+      bill,
+      isPaid: isBillPaidThisMonth(bill),
+      isMonitoring: false,
+      dueTime: billDueTime(bill),
+      dueDay: bill.dueDay ?? 99,
+    }));
+
+  const billDebtQueue = [
+    ...standaloneBillItems,
+    ...debtQueueItems,
+  ].sort((a, b) => {
+    // Zero-balance monitoring items always live at bottom.
+    if (a.isMonitoring !== b.isMonitoring) {
+      return a.isMonitoring ? 1 : -1;
+    }
+
+    // Paid items move below unpaid items.
+    if (a.isPaid !== b.isPaid) {
+      return a.isPaid ? 1 : -1;
+    }
+
+    // Then sort by actual next due date.
+    if (a.dueTime !== b.dueTime) {
+      return a.dueTime - b.dueTime;
+    }
+
+    // Then recurring due day.
+    if (a.dueDay !== b.dueDay) {
+      return a.dueDay - b.dueDay;
+    }
+
+    return a.key.localeCompare(b.key);
+  });
+
+  function renderBillDebtQueueItem(
+    item: BillDebtQueueItem,
+  ) {
+    if (item.kind === "bill") {
+      const bill = item.bill;
+
+      return (
+        <article
+          key={item.key}
+          className={`rounded-xl border border-[#E1DBD1] p-4 ${
+            item.isPaid
+              ? "bg-[#F3EFE7] opacity-70"
+              : "bg-white"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-semibold">
+                {bill.name}
+              </p>
+
+              <p className="mt-1 text-xs text-[#7A826E]">
+                Due{" "}
+                {dueLabel(
+                  bill.nextDueAt,
+                  bill.dueDay,
+                )}
+                {bill.isAutopay
+                  ? " · Autopay"
+                  : " · Manual"}
+              </p>
+            </div>
+
+            <p className="font-semibold text-[#1E3A34]">
+              {money(bill.amount)}
+            </p>
+          </div>
+
+          {bill.account &&
+            !isDebtAccount(bill.account) && (
+              <p className="mt-3 text-xs text-[#7A826E]">
+                Paid from {bill.account.name}
+              </p>
+            )}
+
+          <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-lg border border-[#D7D0C5] bg-[#F8F5EF] px-3 py-2">
+            <input
+              type="checkbox"
+              checked={isBillPaidThisMonth(bill)}
+              onChange={() =>
+                void toggleBillPaid(bill)
+              }
+              className="h-4 w-4"
+            />
+
+            <span className="text-sm font-medium text-[#3F4742]">
+              {isBillPaidThisMonth(bill)
+                ? "Paid this month"
+                : "Mark paid"}
+            </span>
+
+            {isBillPaidThisMonth(bill) &&
+              bill.lastPaidAt && (
+                <span className="ml-auto text-xs text-[#7A826E]">
+                  {new Date(
+                    bill.lastPaidAt,
+                  ).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              )}
+          </label>
+
+          <button
+            type="button"
+            onClick={() => openBillEditor(bill)}
+            className="mt-3 text-sm font-medium text-[#7C5F33]"
+          >
+            Edit bill
+          </button>
+        </article>
+      );
+    }
+
+    const account = item.account;
+    const bill = item.bill;
+
+    return (
+      <article
+        key={item.key}
+        className={`rounded-xl border border-[#E1DBD1] p-4 ${
+          item.isMonitoring
+            ? "bg-[#F3EFE7] opacity-65"
+            : item.isPaid
+              ? "bg-[#F3EFE7] opacity-70"
+              : "bg-white"
+        }`}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="font-semibold">
+              {account.name}
+            </p>
+
+            <p className="mt-1 text-xs text-[#7A826E]">
+              {account.institution ??
+                account.accountType}
+            </p>
+          </div>
+
+          <p className="text-xl font-semibold text-[#1E3A34]">
+            {money(account.currentBalance)}
+          </p>
+        </div>
+
+        {item.isMonitoring && (
+          <p className="mt-3 text-xs font-medium uppercase tracking-[0.12em] text-[#7A826E]">
+            Monitoring · $0 balance
+          </p>
+        )}
+
+        {bill && !item.isMonitoring && (
+          <div className="mt-3 rounded-lg bg-[#F8F5EF] px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-[#7A826E]">
+                Due{" "}
+                {dueLabel(
+                  bill.nextDueAt,
+                  bill.dueDay,
+                )}
+                {bill.isAutopay
+                  ? " · Autopay"
+                  : " · Manual"}
+              </p>
+
+              {bill.amount > 0 && (
+                <p className="text-sm font-semibold text-[#1E3A34]">
+                  Payment {money(bill.amount)}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {account.isDebt && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {account.isDebtTarget ? (
+              <span className="rounded-full bg-[#B08D57] px-3 py-1 text-xs font-semibold text-white">
+                Current target
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  void setDebtTarget(account)
+                }
+                className="rounded-full border border-[#B08D57] px-3 py-1 text-xs text-[#7C5F33]"
+              >
+                Make current target
+              </button>
+            )}
+
+            {account.minimumPayment !== null &&
+              account.minimumPayment > 0 && (
+                <span className="rounded-full border border-[#D7D0C5] bg-white px-3 py-1 text-xs text-[#6F776B]">
+                  Min{" "}
+                  {money(account.minimumPayment)}
+                </span>
+              )}
+
+            {account.interestRate !== null && (
+              <span className="rounded-full border border-[#D7D0C5] bg-white px-3 py-1 text-xs text-[#6F776B]">
+                {account.interestRate}% APR
+              </span>
+            )}
+          </div>
+        )}
+
+        {account.plaidAccountId && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[#6F776B]">
+            <span className="rounded-full border border-[#C9D5CC] bg-[#EEF3EF] px-3 py-1 font-medium text-[#4F6656]">
+              Plaid synced
+            </span>
+
+            {account.plaidMask && (
+              <span>
+                •••• {account.plaidMask}
+              </span>
+            )}
+          </div>
+        )}
+
+        {bill && !item.isMonitoring && (
+          <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-lg border border-[#D7D0C5] bg-[#F8F5EF] px-3 py-2">
+            <input
+              type="checkbox"
+              checked={isBillPaidThisMonth(bill)}
+              onChange={() =>
+                void toggleBillPaid(bill)
+              }
+              className="h-4 w-4"
+            />
+
+            <span className="text-sm font-medium text-[#3F4742]">
+              {isBillPaidThisMonth(bill)
+                ? "Paid this month"
+                : "Mark paid"}
+            </span>
+
+            {isBillPaidThisMonth(bill) &&
+              bill.lastPaidAt && (
+                <span className="ml-auto text-xs text-[#7A826E]">
+                  {new Date(
+                    bill.lastPaidAt,
+                  ).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              )}
+          </label>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-4">
+          {bill && (
+            <button
+              type="button"
+              onClick={() => openBillEditor(bill)}
+              className="text-sm font-medium text-[#7C5F33]"
+            >
+              Edit bill
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() =>
+              openAccountEditor(account)
+            }
+            className="text-sm font-medium text-[#7C5F33]"
+          >
+            Edit account
+          </button>
+        </div>
+      </article>
+    );
+  }
+
+
+  return (
+    <main className="min-h-screen bg-[#F3EFE7] px-6 py-8 text-[#2C2C2C] lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#B08D57]">
+              Money
+            </p>
+
+            <h1 className="mt-3 text-4xl font-semibold text-[#1E3A34]">
+              Finances
+            </h1>
+
+            <p className="mt-2 text-[#6F776B]">
+              Accounts, bills, and the road out of debt.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void loadFinance()}
+              disabled={isLoading}
+              className="rounded-xl border border-[#B08D57] bg-[#F8F5EF] px-5 py-3 text-sm font-medium text-[#7C5F33] transition hover:bg-[#E9E2D6] disabled:cursor-wait disabled:opacity-50"
+            >
+              {isLoading ? "Syncing…" : "Sync Plaid now"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void connectBank()}
+              disabled={isConnectingBank}
+              className="rounded-xl bg-[#B08D57] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#9A7947] disabled:cursor-wait disabled:opacity-50"
+            >
+              {isConnectingBank
+                ? "Connecting…"
+                : "Connect bank"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const opening = !showAccountForm;
+                setShowAccountForm(opening);
+
+                if (opening) {
+                  setTimeout(() => {
+                    document
+                      .getElementById("add-account-form")
+                      ?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      });
+                  }, 50);
+                }
+              }}
+              className="rounded-xl border border-[#C7BFB2] bg-white px-5 py-3 text-sm font-medium text-[#3F4742]"
+            >
+              Add account
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const opening = !showBillForm;
+                setShowBillForm(opening);
+
+                if (opening) {
+                  setTimeout(() => {
+                    document
+                      .getElementById("add-bill-form")
+                      ?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      });
+                  }, 50);
+                }
+              }}
+              className="rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-medium text-white"
+            >
+              Add bill
+            </button>
+          </div>
+        </header>
+
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
+              Overall debt progress
+            </p>
+
+            <div className="mt-4 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-4xl font-semibold text-[#1E3A34]">
+                  {money(debtSummary.currentDebt)}
+                </p>
+
+                <p className="mt-1 text-sm text-[#6F776B]">
+                  remaining of {money(debtSummary.startingDebt)}
+                </p>
+              </div>
+
+              <p className="text-xl font-semibold text-[#7C5F33]">
+                {percent(debtSummary.progress)}
+              </p>
+            </div>
+
+            <div className="mt-5 h-4 overflow-hidden rounded-full bg-[#D7D0C5]">
+              <div
+                className="h-full rounded-full bg-[#1E3A34]"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    debtSummary.progress,
+                  )}%`,
+                }}
+              />
+            </div>
+
+            <div className="mt-4 flex justify-between text-sm text-[#6F776B]">
+              <span>
+                Paid off {money(debtSummary.paidOff)}
+              </span>
+              <span>
+                {debtSummary.debts.length} debt accounts
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#B08D57] bg-[#E9E2D6] p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C5F33]">
+              Current debt target
+            </p>
+
+            {debtSummary.target ? (
+              <>
+                <h2 className="mt-3 text-2xl font-semibold text-[#1E3A34]">
+                  {debtSummary.target.name}
+                </h2>
+
+                <p className="mt-1 text-sm text-[#6F776B]">
+                  {debtSummary.target.institution ??
+                    debtSummary.target.accountType}
+                </p>
+
+                <div className="mt-5 flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-3xl font-semibold text-[#1E3A34]">
+                      {money(
+                        debtSummary.target.currentBalance,
+                      )}
+                    </p>
+
+                    <p className="mt-1 text-sm text-[#6F776B]">
+                      remaining of{" "}
+                      {money(
+                        debtSummary.target.startingBalance,
+                      )}
+                    </p>
+                  </div>
+
+                  <p className="text-xl font-semibold text-[#7C5F33]">
+                    {percent(debtSummary.targetProgress)}
+                  </p>
+                </div>
+
+                <div className="mt-5 h-4 overflow-hidden rounded-full bg-[#D7D0C5]">
+                  <div
+                    className="h-full rounded-full bg-[#B08D57]"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        debtSummary.targetProgress,
+                      )}%`,
+                    }}
+                  />
+                </div>
+
+                <p className="mt-4 text-sm text-[#6F776B]">
+                  Paid down{" "}
+                  {money(debtSummary.targetPaidOff)}
+                </p>
+              </>
+            ) : (
+              <p className="mt-4 rounded-xl bg-white/60 p-4 text-sm text-[#6F776B]">
+                Choose a debt account below and mark it as your
+                current target.
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
+                Debt to assets
+              </p>
+
+              <h2 className="mt-3 text-3xl font-semibold text-[#1E3A34]">
+                {assetSummary.totalAssets > 0
+                  ? `${assetSummary.debtToAssetsRatio.toFixed(1)}%`
+                  : "—"}
+              </h2>
+
+              <p className="mt-1 text-sm text-[#6F776B]">
+                Current debt compared with tracked assets
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-8 gap-y-5 text-right sm:grid-cols-5">
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#7A826E]">
+                  Liquid
+                </p>
+                <p className="mt-1 text-xl font-semibold text-[#1E3A34]">
+                  {money(assetSummary.liquidTotal)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#7A826E]">
+                  Non-liquid
+                </p>
+                <p className="mt-1 text-xl font-semibold text-[#1E3A34]">
+                  {money(assetSummary.nonLiquidTotal)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#7A826E]">
+                  Total assets
+                </p>
+                <p className="mt-1 text-xl font-semibold text-[#1E3A34]">
+                  {money(assetSummary.totalAssets)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#7A826E]">
+                  Total debt
+                </p>
+                <p className="mt-1 text-xl font-semibold text-[#1E3A34]">
+                  {money(debtSummary.currentDebt)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#B08D57]">
+                  Net worth
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-[#1E3A34]">
+                  {money(assetSummary.netWorth)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <div className="h-5 overflow-hidden rounded-full bg-[#D7D0C5]">
+              <div
+                className="h-full rounded-full bg-[#B08D57]"
+                style={{
+                  width: `${
+                    assetSummary.totalAssets > 0
+                      ? Math.min(
+                          100,
+                          assetSummary.debtToAssetsRatio,
+                        )
+                      : 0
+                  }%`,
+                }}
+              />
+            </div>
+
+            <div className="mt-3 flex justify-between text-xs text-[#6F776B]">
+              <span>Lower is healthier</span>
+              <span>{assetSummary.assets.length} asset accounts tracked</span>
+            </div>
+          </div>
+        </section>
+
+        {showAccountForm && (
+          <form
+            id="add-account-form"
+            onSubmit={createAccount}
+            className="mt-6 rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6"
+          >
+            <h2 className="text-xl font-semibold">
+              Add financial account
+            </h2>
+
+            <div className="mt-5 grid gap-5 md:grid-cols-2">
+              <input
+                value={accountName}
+                onChange={(event) =>
+                  setAccountName(event.target.value)
+                }
+                placeholder="Account name"
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              />
+
+              <input
+                value={institution}
+                onChange={(event) =>
+                  setInstitution(event.target.value)
+                }
+                placeholder="Institution"
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              />
+
+              <label>
+                <span className="mb-2 block text-sm text-[#6F776B]">
+                  Financial item type
+                </span>
+
+                <select
+                  value={accountType}
+                  onChange={(event) => {
+                    const nextType = event.target.value;
+                    setAccountType(nextType);
+
+                    setIsDebt(
+                      [
+                        "CREDIT_CARD",
+                        "LOAN",
+                        "MORTGAGE",
+                        "TAX_DEBT",
+                        "OTHER_DEBT",
+                      ].includes(nextType),
+                    );
+                  }}
+                  className="w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <optgroup label="Liquid assets">
+                    <option value="CHECKING">Checking</option>
+                    <option value="SAVINGS">Savings</option>
+                  </optgroup>
+
+                  <optgroup label="Non-liquid assets">
+                    <option value="INVESTMENT">Investment</option>
+                    <option value="RETIREMENT">Retirement</option>
+                    <option value="REAL_ESTATE">Real estate</option>
+                    <option value="VEHICLE">Vehicle</option>
+                    <option value="OTHER_ASSET">Other asset</option>
+                  </optgroup>
+
+                  <optgroup label="Debt">
+                    <option value="CREDIT_CARD">Credit card</option>
+                    <option value="LOAN">Loan</option>
+                    <option value="MORTGAGE">Mortgage</option>
+                    <option value="TAX_DEBT">Tax debt</option>
+                    <option value="OTHER_DEBT">Other debt</option>
+                  </optgroup>
+                </select>
+              </label>
+
+              <div className="flex items-center rounded-xl border border-[#D7D0C5] bg-[#F3EFE7] px-4 py-3 text-sm text-[#6F776B]">
+                {[
+                  "CREDIT_CARD",
+                  "LOAN",
+                  "MORTGAGE",
+                  "TAX_DEBT",
+                  "OTHER_DEBT",
+                ].includes(accountType)
+                  ? "Will appear in Bills & Debt"
+                  : ["CHECKING", "SAVINGS"].includes(accountType)
+                    ? "Will appear in Liquid Assets"
+                    : "Will appear in Non-Liquid Assets"}
+              </div>
+
+              <input
+                type="number"
+                step="0.01"
+                value={startingBalance}
+                onChange={(event) =>
+                  setStartingBalance(event.target.value)
+                }
+                placeholder="Starting balance"
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              />
+
+              <input
+                type="number"
+                step="0.01"
+                value={currentBalance}
+                onChange={(event) =>
+                  setCurrentBalance(event.target.value)
+                }
+                placeholder="Current balance"
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              />
+
+              {isDebt && (
+                <>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={minimumPayment}
+                    onChange={(event) =>
+                      setMinimumPayment(event.target.value)
+                    }
+                    placeholder="Minimum payment"
+                    className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                  />
+
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={interestRate}
+                    onChange={(event) =>
+                      setInterestRate(event.target.value)
+                    }
+                    placeholder="Standard interest rate %"
+                    className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                  />
+                </>
+              )}
+            </div>
+
+            <textarea
+              value={accountNotes}
+              onChange={(event) =>
+                setAccountNotes(event.target.value)
+              }
+              placeholder="Notes (optional)"
+              rows={2}
+              className="mt-5 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+            />
+
+            <button
+              type="submit"
+              className="mt-5 rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white"
+            >
+              Save account
+            </button>
+          </form>
+        )}
+
+        {showBillForm && (
+          <form
+            id="add-bill-form"
+            onSubmit={createBill}
+            className="mt-6 rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6"
+          >
+            <h2 className="text-xl font-semibold">
+              Add bill
+            </h2>
+
+            <div className="mt-5 grid gap-5 md:grid-cols-2">
+              <input
+                value={billName}
+                onChange={(event) =>
+                  setBillName(event.target.value)
+                }
+                placeholder="Bill name"
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              />
+
+              <input
+                type="number"
+                step="0.01"
+                value={billAmount}
+                onChange={(event) =>
+                  setBillAmount(event.target.value)
+                }
+                placeholder="Amount"
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              />
+
+              <select
+                value={billFrequency}
+                onChange={(event) =>
+                  setBillFrequency(event.target.value)
+                }
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              >
+                <option value="MONTHLY">Monthly</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="BIWEEKLY">Every 2 weeks</option>
+                <option value="QUARTERLY">Quarterly</option>
+                <option value="ANNUAL">Annual</option>
+                <option value="ONE_TIME">One time</option>
+              </select>
+
+              <input
+                type="date"
+                value={billDueDate}
+                onChange={(event) =>
+                  setBillDueDate(event.target.value)
+                }
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              />
+
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={billDueDay}
+                onChange={(event) =>
+                  setBillDueDay(event.target.value)
+                }
+                placeholder="Recurring due day"
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              />
+
+              <select
+                value={billAccountId}
+                onChange={(event) =>
+                  setBillAccountId(event.target.value)
+                }
+                className="rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+              >
+                <option value="">
+                  Payment account (optional)
+                </option>
+                {accounts
+                  .filter((account) => !account.isDebt)
+                  .map((account) => (
+                    <option
+                      key={account.id}
+                      value={account.id}
+                    >
+                      {account.name}
+                    </option>
+                  ))}
+              </select>
+
+              <label className="flex items-center gap-3 rounded-xl border border-[#C7BFB2] bg-white px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={billAutopay}
+                  onChange={(event) =>
+                    setBillAutopay(event.target.checked)
+                  }
+                />
+                Autopay
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              className="mt-5 rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white"
+            >
+              Save bill
+            </button>
+          </form>
+        )}
+
+        {recurringSuggestions.length > 0 && (
+          <section className="mt-6 rounded-2xl border border-[#B08D57] bg-[#E9E2D6] p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C5F33]">
+                  Jarvis found recurring charges
+                </p>
+
+                <h2 className="mt-2 text-2xl font-semibold text-[#1E3A34]">
+                  Suggested bills
+                </h2>
+
+                <p className="mt-1 text-sm text-[#6F776B]">
+                  Review these before adding them to your bill list.
+                </p>
+              </div>
+
+              <span className="rounded-full bg-[#1E3A34] px-3 py-1 text-xs font-semibold text-white">
+                {recurringSuggestions.length} to review
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              {recurringSuggestions.map((suggestion) => (
+                <article
+                  key={suggestion.id}
+                  className="rounded-xl border border-[#D7D0C5] bg-[#F8F5EF] p-4"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">
+                        {suggestion.merchantName ??
+                          suggestion.description}
+                      </p>
+
+                      <p className="mt-1 text-xs text-[#7A826E]">
+                        {suggestion.frequency}
+                        {suggestion.predictedNextDate
+                          ? ` · Next ${new Date(
+                              suggestion.predictedNextDate,
+                            ).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                            })}`
+                          : ""}
+                      </p>
+                    </div>
+
+                    <p className="shrink-0 text-lg font-semibold text-[#1E3A34]">
+                      {money(
+                        suggestion.lastAmount ??
+                          suggestion.averageAmount,
+                      )}
+                    </p>
+                  </div>
+
+                  <p className="mt-3 line-clamp-2 text-xs text-[#7A826E]">
+                    {suggestion.description}
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void reviewRecurringSuggestion(
+                          suggestion.id,
+                          "approve",
+                        )
+                      }
+                      className="rounded-lg bg-[#1E3A34] px-4 py-2 text-xs font-semibold text-white"
+                    >
+                      Add as bill
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void reviewRecurringSuggestion(
+                          suggestion.id,
+                          "ignore",
+                        )
+                      }
+                      className="rounded-lg border border-[#C7BFB2] bg-white px-4 py-2 text-xs font-semibold text-[#6F776B]"
+                    >
+                      Ignore
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="mt-6 grid gap-6 xl:grid-cols-3">
+          {/* BILLS + DEBT */}
+          <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
+                What needs attention
+              </p>
+
+              <h2 className="mt-2 text-2xl font-semibold text-[#1E3A34]">
+                Bills & Debt
+              </h2>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {isLoading ? (
+                <p className="text-[#6F776B]">
+                  Loading bills and debt…
+                </p>
+              ) : billDebtQueue.length === 0 ? (
+                <p className="rounded-xl bg-[#F3EFE7] p-4 text-[#6F776B]">
+                  Nothing needs attention right now.
+                </p>
+              ) : (
+                billDebtQueue.map((item) =>
+                  renderBillDebtQueueItem(item),
+                )
+              )}
+            </div>
+          </div>
+
+          {/* LIQUID ASSETS */}
+          <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
+                Available money
+              </p>
+
+              <h2 className="mt-2 text-2xl font-semibold text-[#1E3A34]">
+                Liquid Assets
+              </h2>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {isLoading ? (
+                <p className="text-[#6F776B]">
+                  Loading liquid assets…
+                </p>
+              ) : liquidAccounts.length === 0 ? (
+                <p className="rounded-xl bg-[#F3EFE7] p-4 text-[#6F776B]">
+                  Add checking, savings, or another liquid account.
+                </p>
+              ) : (
+                liquidAccounts.map((account) =>
+                  renderAccountCard(account),
+                )
+              )}
+            </div>
+          </div>
+
+          {/* NON-LIQUID ASSETS */}
+          <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
+                Long-term value
+              </p>
+
+              <h2 className="mt-2 text-2xl font-semibold text-[#1E3A34]">
+                Non-Liquid Assets
+              </h2>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {isLoading ? (
+                <p className="text-[#6F776B]">
+                  Loading non-liquid assets…
+                </p>
+              ) : nonLiquidAccounts.length === 0 ? (
+                <p className="rounded-xl bg-[#F3EFE7] p-4 text-[#6F776B]">
+                  Add retirement, property, investments, or other assets.
+                </p>
+              ) : (
+                nonLiquidAccounts.map((account) =>
+                  renderAccountCard(account),
+                )
+              )}
+            </div>
+          </div>
+        </section>
+
+        {plaidItems.length > 0 && (
+          <section className="mt-6 rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
+                Connected institutions
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-[#1E3A34]">
+                Plaid connections
+              </h2>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {plaidItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex flex-col gap-3 rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {item.institutionName ?? "Connected bank"}
+                    </p>
+
+                    <p className="mt-1 text-xs text-[#7A826E]">
+                      Balances synced through Plaid
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void enableBillDetails(item.id)}
+                    disabled={isConnectingBank}
+                    className="rounded-xl border border-[#B08D57] bg-white px-4 py-2 text-sm font-medium text-[#7C5F33] transition hover:bg-[#F8F5F0] disabled:opacity-50"
+                  >
+                    Enable bill details
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {editingBill && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 px-4 backdrop-blur-[2px]"
+          onClick={() => setEditingBill(null)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#B08D57]">
+                  Bill details
+                </p>
+
+                <h2 className="mt-1 text-2xl font-semibold text-[#1E3A34]">
+                  Update {editingBill.name}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setEditingBill(null)}
+                className="text-sm text-[#6F776B]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <label className="md:col-span-2">
+                <span className="text-sm">
+                  Bill name
+                </span>
+
+                <input
+                  value={editBillName}
+                  onChange={(event) =>
+                    setEditBillName(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">
+                  Amount
+                </span>
+
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editBillAmount}
+                  onChange={(event) =>
+                    setEditBillAmount(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">
+                  Frequency
+                </span>
+
+                <select
+                  value={editBillFrequency}
+                  onChange={(event) =>
+                    setEditBillFrequency(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="WEEKLY">Weekly</option>
+                  <option value="BIWEEKLY">Every 2 weeks</option>
+                  <option value="QUARTERLY">Quarterly</option>
+                  <option value="ANNUAL">Annual</option>
+                  <option value="ONE_TIME">One time</option>
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">
+                  Next due date
+                </span>
+
+                <input
+                  type="date"
+                  value={editBillDueDate}
+                  onChange={(event) =>
+                    setEditBillDueDate(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">
+                  Recurring due day
+                </span>
+
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={editBillDueDay}
+                  onChange={(event) =>
+                    setEditBillDueDay(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="text-sm">
+                  Payment account
+                </span>
+
+                <select
+                  value={editBillAccountId}
+                  onChange={(event) =>
+                    setEditBillAccountId(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="">
+                    No linked account
+                  </option>
+
+                  {accounts.map((account) => (
+                    <option
+                      key={account.id}
+                      value={account.id}
+                    >
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-3 rounded-xl border border-[#C7BFB2] bg-white px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={editBillAutopay}
+                  onChange={(event) =>
+                    setEditBillAutopay(
+                      event.target.checked,
+                    )
+                  }
+                />
+
+                <span className="text-sm">
+                  Autopay
+                </span>
+              </label>
+
+              <label className="flex items-center gap-3 rounded-xl border border-[#C7BFB2] bg-white px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={editBillActive}
+                  onChange={(event) =>
+                    setEditBillActive(
+                      event.target.checked,
+                    )
+                  }
+                />
+
+                <span className="text-sm">
+                  Active bill
+                </span>
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="text-sm">
+                  Notes
+                </span>
+
+                <textarea
+                  value={editBillNotes}
+                  onChange={(event) =>
+                    setEditBillNotes(event.target.value)
+                  }
+                  rows={3}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void saveBillChanges()}
+              className="mt-6 w-full rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white"
+            >
+              Save changes
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editingAccount && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 px-4 backdrop-blur-[2px]"
+          onClick={() => setEditingAccount(null)}
+        >
+          <div
+            className="w-full max-w-xl rounded-3xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold">
+                Update {editingAccount.name}
+              </h2>
+
+              <button
+                type="button"
+                onClick={() => setEditingAccount(null)}
+                className="text-sm text-[#6F776B]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <label>
+                <span className="text-sm">
+                  Account type
+                </span>
+
+                <select
+                  value={editAccountType}
+                  onChange={(event) =>
+                    setEditAccountType(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="CHECKING">Checking</option>
+                  <option value="SAVINGS">Savings</option>
+                  <option value="INVESTMENT">Investment</option>
+                  <option value="RETIREMENT">Retirement</option>
+                  <option value="REAL_ESTATE">Real estate</option>
+                  <option value="VEHICLE">Vehicle</option>
+                  <option value="OTHER_ASSET">Other asset</option>
+                  <option value="CREDIT_CARD">Credit card</option>
+                  <option value="LOAN">Loan</option>
+                  <option value="MORTGAGE">Mortgage</option>
+                  <option value="TAX_DEBT">Tax debt</option>
+                  <option value="OTHER_DEBT">Other debt</option>
+                  <option value="OTHER">Other — legacy</option>
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">
+                  Current balance
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editCurrentBalance}
+                  onChange={(event) =>
+                    setEditCurrentBalance(
+                      event.target.value,
+                    )
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">
+                  Starting balance
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editStartingBalance}
+                  onChange={(event) =>
+                    setEditStartingBalance(
+                      event.target.value,
+                    )
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              {editingAccount.isDebt && (
+                <>
+                  <label>
+                    <span className="text-sm">
+                      Minimum payment
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editMinimumPayment}
+                      onChange={(event) =>
+                        setEditMinimumPayment(
+                          event.target.value,
+                        )
+                      }
+                      className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                    />
+                  </label>
+
+                  <label>
+                    <span className="text-sm">
+                      Standard interest rate %
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editInterestRate}
+                      onChange={(event) =>
+                        setEditInterestRate(
+                          event.target.value,
+                        )
+                      }
+                      className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                    />
+                  </label>
+
+                  <div className="rounded-2xl border border-[#D7D0C5] bg-white/60 p-4">
+                    <p className="text-sm font-semibold text-[#1E3A34]">
+                      Promotional balance
+                    </p>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <label>
+                        <span className="text-sm">Promo balance</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editPromoBalance}
+                          onChange={(event) =>
+                            setEditPromoBalance(event.target.value)
+                          }
+                          className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                        />
+                      </label>
+
+                      <label>
+                        <span className="text-sm">Promo APR %</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editPromoInterestRate}
+                          onChange={(event) =>
+                            setEditPromoInterestRate(event.target.value)
+                          }
+                          className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                        />
+                      </label>
+
+                      <label className="md:col-span-2">
+                        <span className="text-sm">Promo end date</span>
+                        <input
+                          type="date"
+                          value={editPromoEndsAt}
+                          onChange={(event) =>
+                            setEditPromoEndsAt(event.target.value)
+                          }
+                          className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void saveAccountChanges()}
+              className="mt-6 w-full rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white"
+            >
+              Save changes
+            </button>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}

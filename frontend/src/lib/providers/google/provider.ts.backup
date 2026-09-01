@@ -1,0 +1,161 @@
+import { google, calendar_v3 } from "googleapis";
+import {
+  CalendarAccessRole,
+} from "@/generated/prisma/client";
+import { createGoogleOAuthClient } from "@/lib/providers/google/oauth";
+
+export interface GoogleCredentialPayload {
+  accessToken: string | null;
+  refreshToken: string | null;
+  expiresAt: number | null;
+  scope: string | null;
+  tokenType: string | null;
+}
+
+export interface GoogleAccountProfile {
+  providerAccountId: string;
+  email: string;
+  displayName: string | null;
+}
+
+export interface NormalizedGoogleCalendar {
+  externalId: string;
+  name: string;
+  description: string | null;
+  timeZone: string | null;
+  providerColor: string | null;
+  accessRole: CalendarAccessRole;
+  isPrimary: boolean;
+  isReadOnly: boolean;
+}
+
+function normalizeAccessRole(
+  accessRole: calendar_v3.Schema$CalendarListEntry["accessRole"]
+): CalendarAccessRole {
+  switch (accessRole) {
+    case "owner":
+      return CalendarAccessRole.OWNER;
+
+    case "writer":
+      return CalendarAccessRole.WRITER;
+
+    case "reader":
+      return CalendarAccessRole.READER;
+
+    case "freeBusyReader":
+      return CalendarAccessRole.FREE_BUSY;
+
+    default:
+      return CalendarAccessRole.NONE;
+  }
+}
+
+export async function exchangeGoogleAuthorizationCode(
+  code: string
+): Promise<GoogleCredentialPayload> {
+  const client = createGoogleOAuthClient();
+
+  const { tokens } = await client.getToken(code);
+
+  if (!tokens.access_token) {
+    throw new Error("Google did not return an access token.");
+  }
+
+  return {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token ?? null,
+    expiresAt: tokens.expiry_date ?? null,
+    scope: tokens.scope ?? null,
+    tokenType: tokens.token_type ?? null,
+  };
+}
+
+export async function getGoogleAccountProfile(
+  credentials: GoogleCredentialPayload
+): Promise<GoogleAccountProfile> {
+  const client = createGoogleOAuthClient();
+
+  client.setCredentials({
+    access_token: credentials.accessToken,
+    refresh_token: credentials.refreshToken,
+    expiry_date: credentials.expiresAt,
+    scope: credentials.scope ?? undefined,
+    token_type: credentials.tokenType ?? undefined,
+  });
+
+  const oauth2 = google.oauth2({
+    version: "v2",
+    auth: client,
+  });
+
+  const response = await oauth2.userinfo.get();
+
+  if (!response.data.id || !response.data.email) {
+    throw new Error(
+      "Google did not return the required account identity."
+    );
+  }
+
+  return {
+    providerAccountId: response.data.id,
+    email: response.data.email,
+    displayName: response.data.name ?? null,
+  };
+}
+
+export async function listGoogleCalendars(
+  credentials: GoogleCredentialPayload
+): Promise<NormalizedGoogleCalendar[]> {
+  const client = createGoogleOAuthClient();
+
+  client.setCredentials({
+    access_token: credentials.accessToken,
+    refresh_token: credentials.refreshToken,
+    expiry_date: credentials.expiresAt,
+    scope: credentials.scope ?? undefined,
+    token_type: credentials.tokenType ?? undefined,
+  });
+
+  const calendar = google.calendar({
+    version: "v3",
+    auth: client,
+  });
+
+  const calendars: NormalizedGoogleCalendar[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const response = await calendar.calendarList.list({
+      maxResults: 250,
+      pageToken,
+      showDeleted: false,
+      showHidden: true,
+    });
+
+    for (const item of response.data.items ?? []) {
+      if (!item.id) {
+        continue;
+      }
+
+      const role = normalizeAccessRole(item.accessRole);
+
+      calendars.push({
+        externalId: item.id,
+        name: item.summaryOverride ?? item.summary ?? "Untitled calendar",
+        description: item.description ?? null,
+        timeZone: item.timeZone ?? null,
+        providerColor:
+          item.backgroundColor ?? item.foregroundColor ?? null,
+        accessRole: role,
+        isPrimary: item.primary ?? false,
+        isReadOnly:
+          role !== CalendarAccessRole.OWNER &&
+          role !== CalendarAccessRole.WRITER,
+      });
+    }
+
+    pageToken = response.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  return calendars;
+}

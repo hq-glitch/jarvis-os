@@ -2,190 +2,232 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
+type ProjectTask = {
+  id: string;
+  title: string;
+  status: string;
+  completedAt: string | null;
+  priority: string;
+};
+
+type ProjectSocialContent = {
+  id: string;
+  title: string;
+  platform: string;
+  status: string;
+};
+
 type Project = {
   id: string;
   name: string;
-  description: string;
+  description: string | null;
   progress: number;
   status: string;
-  nextAction: string;
+  nextAction: string | null;
+  notes: string | null;
+  tasks: ProjectTask[];
+  socialContent: ProjectSocialContent[];
 };
-
-const starterProjects: Project[] = [
-  {
-    id: "jarvis-os",
-    name: "Jarvis OS",
-    description: "Build the personal AI operating system.",
-    progress: 40,
-    status: "Active",
-    nextAction: "Create persistent project storage",
-  },
-  {
-    id: "pepperdine",
-    name: "Pepperdine",
-    description: "Manage coursework, readings, deadlines, and research.",
-    progress: 20,
-    status: "Active",
-    nextAction: "Import the academic calendar",
-  },
-  {
-    id: "rouke-ranch",
-    name: "Rouke Ranch",
-    description: "Organize property projects, branding, and content.",
-    progress: 65,
-    status: "Active",
-    nextAction: "Plan the next content batch",
-  },
-  {
-    id: "finance",
-    name: "Finance",
-    description: "Track taxes, accounts, budgets, and major decisions.",
-    progress: 15,
-    status: "Planning",
-    nextAction: "Define the finance dashboard",
-  },
-];
-
-const storageKey = "jarvis-projects";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editStatus, setEditStatus] = useState("");
+  const [editProgress, setEditProgress] = useState("");
+  const [editNextAction, setEditNextAction] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+
+  async function loadProjects() {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/projects", {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to load projects.");
+      }
+
+      const data = (await response.json()) as {
+        projects: Project[];
+      };
+
+      setProjects(data.projects ?? []);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load projects.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
-    try {
-      const savedProjects = window.localStorage.getItem(storageKey);
-
-      if (savedProjects) {
-        setProjects(JSON.parse(savedProjects) as Project[]);
-      } else {
-        setProjects(starterProjects);
-      }
-    } catch {
-      setProjects(starterProjects);
-    } finally {
-      setIsLoaded(true);
-    }
+    void loadProjects();
   }, []);
 
-  useEffect(() => {
-    if (!isLoaded) {
-      return;
+  function openProjectEditor(project: Project) {
+    setEditingProject(project);
+    setEditStatus(project.status);
+    setEditProgress(String(project.progress));
+    setEditNextAction(project.nextAction ?? "");
+    setEditNotes(project.notes ?? "");
+  }
+
+  async function saveProjectChanges() {
+    if (!editingProject) return;
+
+    try {
+      const response = await fetch("/api/projects", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: editingProject.id,
+          status: editStatus,
+          progress: Number(editProgress || 0),
+          nextAction: editNextAction || null,
+          notes: editNotes || null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update project.");
+      }
+
+      setEditingProject(null);
+      await loadProjects();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to update project.",
+      );
     }
+  }
 
-    window.localStorage.setItem(storageKey, JSON.stringify(projects));
-  }, [projects, isLoaded]);
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const trimmedName = name.trim();
-    const trimmedDescription = description.trim();
+    if (!name.trim()) return;
 
-    if (!trimmedName) {
-      return;
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          description,
+          status: "PLANNING",
+          progress: 0,
+          nextAction: "Choose the first action for this project",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to create project.");
+      }
+
+      setName("");
+      setDescription("");
+      setIsFormOpen(false);
+
+      await loadProjects();
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Unable to create project.",
+      );
     }
-
-    const newProject: Project = {
-      id: crypto.randomUUID(),
-      name: trimmedName,
-      description:
-        trimmedDescription || "No project description has been added yet.",
-      progress: 0,
-      status: "Planning",
-      nextAction: "Choose the first action for this project",
-    };
-
-    setProjects((currentProjects) => [newProject, ...currentProjects]);
-    setName("");
-    setDescription("");
-    setIsFormOpen(false);
-  }
-
-  function deleteProject(projectId: string) {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this project?",
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setProjects((currentProjects) =>
-      currentProjects.filter((project) => project.id !== projectId),
-    );
-  }
-
-  if (!isLoaded) {
-    return (
-      <main className="min-h-screen bg-slate-950 px-8 py-10 text-slate-100">
-        <p className="text-slate-400">Loading projects...</p>
-      </main>
-    );
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-8 py-10 text-slate-100">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-8 flex items-end justify-between gap-4">
+    <main className="min-h-screen bg-[#F3EFE7] px-6 py-8 text-[#2C2C2C] lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-medium uppercase tracking-[0.3em] text-blue-400">
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#B08D57]">
               Workspace
             </p>
 
-            <h1 className="mt-3 text-4xl font-semibold">Projects</h1>
+            <h1 className="mt-3 text-4xl font-semibold text-[#1E3A34]">
+              Projects
+            </h1>
 
-            <p className="mt-2 text-slate-400">
-              Keep every major area of your life organized in one place.
+            <p className="mt-2 text-[#6F776B]">
+              Active work that deserves sustained attention.
             </p>
           </div>
 
           <button
             type="button"
             onClick={() => setIsFormOpen((current) => !current)}
-            className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-blue-500"
+            className="rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white"
           >
             {isFormOpen ? "Cancel" : "New project"}
           </button>
-        </div>
+        </header>
+
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
 
         {isFormOpen && (
           <form
             onSubmit={handleSubmit}
-            className="mb-8 rounded-2xl border border-slate-800 bg-slate-900 p-6"
+            className="mb-8 rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6"
           >
-            <h2 className="text-xl font-semibold">Create a project</h2>
+            <h2 className="text-xl font-semibold text-[#1E3A34]">
+              Create a project
+            </h2>
 
             <div className="mt-5 grid gap-5 md:grid-cols-2">
-              <label className="block">
-                <span className="text-sm text-slate-300">Project name</span>
+              <label>
+                <span className="text-sm text-[#6F776B]">
+                  Project name
+                </span>
 
                 <input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder="Example: Home repairs"
-                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
+                  placeholder="Example: Fence repair"
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
                 />
               </label>
 
-              <label className="block">
-                <span className="text-sm text-slate-300">Description</span>
+              <label>
+                <span className="text-sm text-[#6F776B]">
+                  Description
+                </span>
 
                 <input
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   placeholder="What is this project for?"
-                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
                 />
               </label>
             </div>
 
             <button
               type="submit"
-              className="mt-5 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+              className="mt-5 rounded-xl bg-[#B08D57] px-5 py-3 text-sm font-semibold text-white"
             >
               Create project
             </button>
@@ -193,60 +235,250 @@ export default function ProjectsPage() {
         )}
 
         <section className="grid gap-6 md:grid-cols-2">
-          {projects.map((project) => (
-            <article
-              key={project.id}
-              className="rounded-2xl border border-slate-800 bg-slate-900 p-6"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-semibold">{project.name}</h2>
+          {isLoading ? (
+            <p className="text-[#6F776B]">
+              Loading projects…
+            </p>
+          ) : (
+            projects.map((project) => (
+              <article
+                key={project.id}
+                className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-semibold text-[#1E3A34]">
+                      {project.name}
+                    </h2>
 
-                  <p className="mt-2 text-sm leading-6 text-slate-400">
-                    {project.description}
-                  </p>
+                    {project.description && (
+                      <p className="mt-2 text-sm leading-6 text-[#6F776B]">
+                        {project.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <span className="rounded-full border border-[#D7D0C5] bg-white px-3 py-1 text-xs font-semibold text-[#7C5F33]">
+                    {project.status}
+                  </span>
                 </div>
 
-                <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300">
-                  {project.status}
-                </span>
-              </div>
+                <div className="mt-6">
+                  <div className="mb-2 flex justify-between text-sm">
+                    <span className="text-[#6F776B]">
+                      Progress
+                    </span>
 
-              <div className="mt-6">
-                <div className="mb-2 flex justify-between text-sm">
-                  <span className="text-slate-400">Progress</span>
-                  <span>{project.progress}%</span>
+                    <span className="font-medium text-[#1E3A34]">
+                      {project.progress}%
+                    </span>
+                  </div>
+
+                  <div className="h-2 rounded-full bg-[#D7D0C5]">
+                    <div
+                      className="h-2 rounded-full bg-[#B08D57]"
+                      style={{
+                        width: `${Math.min(100, project.progress)}%`,
+                      }}
+                    />
+                  </div>
                 </div>
 
-                <div className="h-2 rounded-full bg-slate-800">
-                  <div
-                    className="h-2 rounded-full bg-blue-500"
-                    style={{ width: `${project.progress}%` }}
-                  />
-                </div>
-              </div>
+                {project.nextAction && (
+                  <div className="mt-6 rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B08D57]">
+                      Next action
+                    </p>
 
-              <div className="mt-6 rounded-xl bg-slate-950 p-4">
-                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                  Next action
-                </p>
+                    <p className="mt-2 text-sm text-[#3F4742]">
+                      {project.nextAction}
+                    </p>
+                  </div>
+                )}
+                {(project.tasks.length > 0 ||
+                  project.socialContent.length > 0) && (
+                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-xl border border-[#E1DBD1] bg-white/70 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B08D57]">
+                          Open tasks
+                        </p>
+                        <span className="text-xs font-semibold text-[#7C5F33]">
+                          {
+                            project.tasks.filter(
+                              (task) =>
+                                !task.completedAt &&
+                                task.status.toUpperCase() !== "DONE",
+                            ).length
+                          }
+                        </span>
+                      </div>
 
-                <p className="mt-2 text-sm text-slate-200">
-                  {project.nextAction}
-                </p>
-              </div>
+                      <div className="mt-3 space-y-2">
+                        {project.tasks
+                          .filter(
+                            (task) =>
+                              !task.completedAt &&
+                              task.status.toUpperCase() !== "DONE",
+                          )
+                          .slice(0, 3)
+                          .map((task) => (
+                            <p
+                              key={task.id}
+                              className="text-sm text-[#3F4742]"
+                            >
+                              {task.priority === "HIGH" ? "★ " : ""}
+                              {task.title}
+                            </p>
+                          ))}
+
+                        {project.tasks.filter(
+                          (task) =>
+                            !task.completedAt &&
+                            task.status.toUpperCase() !== "DONE",
+                        ).length === 0 && (
+                          <p className="text-sm text-[#7A826E]">
+                            No open tasks.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-[#E1DBD1] bg-white/70 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B08D57]">
+                          Social content
+                        </p>
+                        <span className="text-xs font-semibold text-[#7C5F33]">
+                          {project.socialContent.length}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        {project.socialContent
+                          .slice(0, 3)
+                          .map((item) => (
+                            <div key={item.id}>
+                              <p className="text-sm text-[#3F4742]">
+                                {item.title}
+                              </p>
+                              <p className="text-xs text-[#7A826E]">
+                                {item.platform} · {item.status}
+                              </p>
+                            </div>
+                          ))}
+
+                        {project.socialContent.length === 0 && (
+                          <p className="text-sm text-[#7A826E]">
+                            No linked content.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => openProjectEditor(project)}
+                  className="mt-5 text-sm font-semibold text-[#7C5F33]"
+                >
+                  Edit project
+                </button>
+              </article>
+            ))
+          )}
+        </section>
+      </div>
+
+      {editingProject && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 px-4 backdrop-blur-[2px]"
+          onClick={() => setEditingProject(null)}
+        >
+          <div
+            className="w-full max-w-xl rounded-3xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold text-[#1E3A34]">
+                Edit {editingProject.name}
+              </h2>
 
               <button
                 type="button"
-                onClick={() => deleteProject(project.id)}
-                className="mt-5 text-sm text-red-400 transition hover:text-red-300"
+                onClick={() => setEditingProject(null)}
+                className="text-sm text-[#6F776B]"
               >
-                Delete project
+                Close
               </button>
-            </article>
-          ))}
-        </section>
-      </div>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <label>
+                <span className="text-sm">Status</span>
+                <select
+                  value={editStatus}
+                  onChange={(event) =>
+                    setEditStatus(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="PLANNING">Planning</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="PAUSED">Paused</option>
+                  <option value="DONE">Done</option>
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">Progress %</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={editProgress}
+                  onChange={(event) =>
+                    setEditProgress(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Next action</span>
+                <input
+                  value={editNextAction}
+                  onChange={(event) =>
+                    setEditNextAction(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Notes</span>
+                <textarea
+                  rows={4}
+                  value={editNotes}
+                  onChange={(event) =>
+                    setEditNotes(event.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void saveProjectChanges()}
+              className="mt-6 w-full rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white"
+            >
+              Save changes
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

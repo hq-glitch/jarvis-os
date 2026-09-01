@@ -1,0 +1,931 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+type SocialContent = {
+  id: string;
+  title: string;
+  platform: string;
+  status: string;
+  series: string | null;
+  caption: string | null;
+  hashtags: string | null;
+  publishAt: string | null;
+  publishedUrl: string | null;
+  notes: string | null;
+  projectId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type Project = {
+  id: string;
+  name: string;
+  status: string;
+};
+
+const PIPELINE = [
+  "IDEA",
+  "FILMED",
+  "EDITING",
+  "READY",
+  "SCHEDULED",
+  "PUBLISHED",
+];
+
+const PLATFORMS = [
+  "TikTok",
+  "Facebook",
+  "Instagram",
+  "YouTube",
+  "Threads",
+  "Pinterest",
+  "Other",
+];
+
+function statusLabel(value: string) {
+  const labels: Record<string, string> = {
+    IDEA: "Idea",
+    FILMED: "Filmed",
+    EDITING: "Editing",
+    READY: "Ready",
+    SCHEDULED: "Scheduled",
+    PUBLISHED: "Published",
+  };
+
+  return labels[value] ?? value;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return null;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function dateInputValue(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toISOString().slice(0, 10);
+}
+
+export default function SocialMediaPage() {
+  const [content, setContent] = useState<SocialContent[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [platform, setPlatform] = useState("TikTok");
+  const [status, setStatus] = useState("IDEA");
+  const [series, setSeries] = useState("");
+  const [caption, setCaption] = useState("");
+  const [hashtags, setHashtags] = useState("");
+  const [publishDate, setPublishDate] = useState("");
+  const [publishedUrl, setPublishedUrl] = useState("");
+  const [notes, setNotes] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [editingItem, setEditingItem] =
+    useState<SocialContent | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editPlatform, setEditPlatform] = useState("TikTok");
+  const [editStatus, setEditStatus] = useState("IDEA");
+  const [editSeries, setEditSeries] = useState("");
+  const [editCaption, setEditCaption] = useState("");
+  const [editHashtags, setEditHashtags] = useState("");
+  const [editPublishDate, setEditPublishDate] = useState("");
+  const [editPublishedUrl, setEditPublishedUrl] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editProjectId, setEditProjectId] = useState("");
+
+  const [taskAddedId, setTaskAddedId] = useState<string | null>(
+    null,
+  );
+
+  async function loadData() {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const [contentResponse, projectResponse] =
+        await Promise.all([
+          fetch("/api/social-media", {
+            cache: "no-store",
+          }),
+          fetch("/api/projects", {
+            cache: "no-store",
+          }),
+        ]);
+
+      if (!contentResponse.ok) {
+        throw new Error("Unable to load social content.");
+      }
+
+      const contentData = (await contentResponse.json()) as {
+        content: SocialContent[];
+      };
+
+      setContent(contentData.content ?? []);
+
+      if (projectResponse.ok) {
+        const projectData = (await projectResponse.json()) as {
+          projects: Project[];
+        };
+
+        setProjects(projectData.projects ?? []);
+      }
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load social media.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  const summary = useMemo(() => {
+    return PIPELINE.reduce<Record<string, number>>(
+      (result, pipelineStatus) => {
+        result[pipelineStatus] = content.filter(
+          (item) => item.status === pipelineStatus,
+        ).length;
+
+        return result;
+      },
+      {},
+    );
+  }, [content]);
+
+  async function createContent(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    if (!title.trim()) return;
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/social-media", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: title.trim(),
+          platform,
+          status,
+          series: series.trim() || null,
+          caption: caption.trim() || null,
+          hashtags: hashtags.trim() || null,
+          publishAt: publishDate
+            ? new Date(
+                `${publishDate}T12:00:00`,
+              ).toISOString()
+            : null,
+          publishedUrl: publishedUrl.trim() || null,
+          notes: notes.trim() || null,
+          projectId: projectId || null,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        content?: SocialContent;
+        error?: string;
+      };
+
+      if (!response.ok || !data.content) {
+        throw new Error(
+          data.error ?? "Unable to create content.",
+        );
+      }
+
+      setTitle("");
+      setPlatform("TikTok");
+      setStatus("IDEA");
+      setSeries("");
+      setCaption("");
+      setHashtags("");
+      setPublishDate("");
+      setPublishedUrl("");
+      setNotes("");
+      setProjectId("");
+      setShowForm(false);
+
+      await loadData();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to create content.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function openEditor(item: SocialContent) {
+    setEditingItem(item);
+    setEditTitle(item.title);
+    setEditPlatform(item.platform);
+    setEditStatus(item.status);
+    setEditSeries(item.series ?? "");
+    setEditCaption(item.caption ?? "");
+    setEditHashtags(item.hashtags ?? "");
+    setEditPublishDate(dateInputValue(item.publishAt));
+    setEditPublishedUrl(item.publishedUrl ?? "");
+    setEditNotes(item.notes ?? "");
+    setEditProjectId(item.projectId ?? "");
+  }
+
+  async function saveChanges() {
+    if (!editingItem || !editTitle.trim()) return;
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/social-media", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: editingItem.id,
+          title: editTitle.trim(),
+          platform: editPlatform,
+          status: editStatus,
+          series: editSeries.trim() || null,
+          caption: editCaption.trim() || null,
+          hashtags: editHashtags.trim() || null,
+          publishAt: editPublishDate
+            ? new Date(
+                `${editPublishDate}T12:00:00`,
+              ).toISOString()
+            : null,
+          publishedUrl:
+            editPublishedUrl.trim() || null,
+          notes: editNotes.trim() || null,
+          projectId: editProjectId || null,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        content?: SocialContent;
+        error?: string;
+      };
+
+      if (!response.ok || !data.content) {
+        throw new Error(
+          data.error ?? "Unable to update content.",
+        );
+      }
+
+      setEditingItem(null);
+      await loadData();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to update content.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function deleteContent(item: SocialContent) {
+    const confirmed = window.confirm(
+      `Delete "${item.title}"?`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch("/api/social-media", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: item.id,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to delete content.");
+      }
+
+      if (editingItem?.id === item.id) {
+        setEditingItem(null);
+      }
+
+      await loadData();
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Unable to delete content.",
+      );
+    }
+  }
+
+  async function addToTasks(item: SocialContent) {
+    setError(null);
+
+    try {
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: `${statusLabel(item.status)}: ${item.title}`,
+          description: [
+            `Social media content for ${item.platform}`,
+            item.series ? `Series: ${item.series}` : null,
+            item.caption
+              ? `Caption:\n${item.caption}`
+              : null,
+            item.hashtags
+              ? `Hashtags:\n${item.hashtags}`
+              : null,
+            item.notes ? `Notes:\n${item.notes}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          priority: "NORMAL",
+          projectId: item.projectId,
+          sourceType: "SOCIAL_MEDIA",
+          sourceAccount: "social-media",
+          sourceMessageId: item.id,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to add task.");
+      }
+
+      setTaskAddedId(item.id);
+    } catch (taskError) {
+      setError(
+        taskError instanceof Error
+          ? taskError.message
+          : "Unable to add task.",
+      );
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-[#F3EFE7] px-6 py-8 text-[#2C2C2C] lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#B08D57]">
+              Creator Workspace
+            </p>
+
+            <h1 className="mt-3 text-4xl font-semibold text-[#1E3A34]">
+              Social Media
+            </h1>
+
+            <p className="mt-2 max-w-2xl text-[#6F776B]">
+              Plan, create, publish, and repurpose content
+              across platforms.
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              disabled={isLoading}
+              className="rounded-xl border border-[#C7BFB2] bg-[#F8F5EF] px-5 py-3 text-sm font-medium text-[#3F4742] disabled:opacity-50"
+            >
+              {isLoading ? "Refreshing…" : "Refresh"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowForm(true)}
+              className="rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white"
+            >
+              New content
+            </button>
+          </div>
+        </header>
+
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <section className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {PIPELINE.map((pipelineStatus) => (
+            <div
+              key={pipelineStatus}
+              className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-5"
+            >
+              <p className="text-3xl font-semibold text-[#1E3A34]">
+                {summary[pipelineStatus] ?? 0}
+              </p>
+              <p className="mt-1 text-sm text-[#6F776B]">
+                {statusLabel(pipelineStatus)}
+              </p>
+            </div>
+          ))}
+        </section>
+
+        <section className="space-y-6">
+          {PIPELINE.map((pipelineStatus) => {
+            const items = content.filter(
+              (item) => item.status === pipelineStatus,
+            );
+
+            return (
+              <section
+                key={pipelineStatus}
+                className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
+                      Pipeline
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold text-[#1E3A34]">
+                      {statusLabel(pipelineStatus)}
+                    </h2>
+                  </div>
+
+                  <span className="rounded-full border border-[#D7D0C5] bg-white px-3 py-1 text-xs font-semibold text-[#7C5F33]">
+                    {items.length}
+                  </span>
+                </div>
+
+                <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                  {items.length === 0 ? (
+                    <p className="rounded-xl bg-[#F3EFE7] p-4 text-sm text-[#7A826E]">
+                      No content here yet.
+                    </p>
+                  ) : (
+                    items.map((item) => (
+                      <article
+                        key={item.id}
+                        className="rounded-2xl border border-[#E1DBD1] bg-[#F3EFE7] p-5"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h3 className="text-lg font-semibold text-[#1E3A34]">
+                              {item.title}
+                            </h3>
+
+                            <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[#7A826E]">
+                              {item.platform}
+                              {item.series
+                                ? ` · ${item.series}`
+                                : ""}
+                            </p>
+
+                            {item.projectId && (
+                              <p className="mt-1 text-xs font-medium text-[#7C5F33]">
+                                Project ·{" "}
+                                {projects.find(
+                                  (project) =>
+                                    project.id === item.projectId,
+                                )?.name ?? "Project"}
+                              </p>
+                            )}
+                          </div>
+
+                          {formatDate(item.publishAt) && (
+                            <span className="rounded-full border border-[#D7D0C5] bg-white px-3 py-1 text-xs text-[#6F776B]">
+                              {formatDate(item.publishAt)}
+                            </span>
+                          )}
+                        </div>
+
+                        {item.caption && (
+                          <p className="mt-4 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-[#5F675D]">
+                            {item.caption}
+                          </p>
+                        )}
+
+                        {item.hashtags && (
+                          <p className="mt-3 text-xs text-[#7C5F33]">
+                            {item.hashtags}
+                          </p>
+                        )}
+
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => openEditor(item)}
+                            className="text-sm font-semibold text-[#7C5F33]"
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void addToTasks(item)
+                            }
+                            className="text-sm font-semibold text-[#1E3A34]"
+                          >
+                            {taskAddedId === item.id
+                              ? "Task added ✓"
+                              : "Add task"}
+                          </button>
+
+                          {item.publishedUrl && (
+                            <a
+                              href={item.publishedUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm font-semibold text-[#4F6656]"
+                            >
+                              Open post
+                            </a>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void deleteContent(item)
+                            }
+                            className="text-sm text-red-600"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </section>
+      </div>
+
+      {showForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/25 px-4 py-8 backdrop-blur-[2px]"
+          onClick={() => setShowForm(false)}
+        >
+          <form
+            onSubmit={createContent}
+            className="w-full max-w-3xl rounded-3xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold text-[#1E3A34]">
+                New content
+              </h2>
+
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="text-sm text-[#6F776B]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <label className="md:col-span-2">
+                <span className="text-sm">Title</span>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  required
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Platform</span>
+                <select
+                  value={platform}
+                  onChange={(e) =>
+                    setPlatform(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  {PLATFORMS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">Status</span>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  {PIPELINE.map((item) => (
+                    <option key={item} value={item}>
+                      {statusLabel(item)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">Series</span>
+                <input
+                  value={series}
+                  onChange={(e) => setSeries(e.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Publish date</span>
+                <input
+                  type="date"
+                  value={publishDate}
+                  onChange={(e) =>
+                    setPublishDate(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Project</span>
+                <select
+                  value={projectId}
+                  onChange={(e) =>
+                    setProjectId(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="">No project</option>
+                  {projects.map((project) => (
+                    <option
+                      key={project.id}
+                      value={project.id}
+                    >
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">Published URL</span>
+                <input
+                  value={publishedUrl}
+                  onChange={(e) =>
+                    setPublishedUrl(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="text-sm">Caption</span>
+                <textarea
+                  rows={4}
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="text-sm">Hashtags</span>
+                <textarea
+                  rows={2}
+                  value={hashtags}
+                  onChange={(e) =>
+                    setHashtags(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="text-sm">Notes</span>
+                <textarea
+                  rows={4}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSaving || !title.trim()}
+              className="mt-6 w-full rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {isSaving ? "Saving…" : "Create content"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {editingItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/25 px-4 py-8 backdrop-blur-[2px]"
+          onClick={() => setEditingItem(null)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-3xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold text-[#1E3A34]">
+                Edit content
+              </h2>
+
+              <button
+                type="button"
+                onClick={() => setEditingItem(null)}
+                className="text-sm text-[#6F776B]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <label className="md:col-span-2">
+                <span className="text-sm">Title</span>
+                <input
+                  value={editTitle}
+                  onChange={(e) =>
+                    setEditTitle(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Platform</span>
+                <select
+                  value={editPlatform}
+                  onChange={(e) =>
+                    setEditPlatform(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  {PLATFORMS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">Status</span>
+                <select
+                  value={editStatus}
+                  onChange={(e) =>
+                    setEditStatus(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  {PIPELINE.map((item) => (
+                    <option key={item} value={item}>
+                      {statusLabel(item)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">Series</span>
+                <input
+                  value={editSeries}
+                  onChange={(e) =>
+                    setEditSeries(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Publish date</span>
+                <input
+                  type="date"
+                  value={editPublishDate}
+                  onChange={(e) =>
+                    setEditPublishDate(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Project</span>
+                <select
+                  value={editProjectId}
+                  onChange={(e) =>
+                    setEditProjectId(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="">No project</option>
+                  {projects.map((project) => (
+                    <option
+                      key={project.id}
+                      value={project.id}
+                    >
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="text-sm">Published URL</span>
+                <input
+                  value={editPublishedUrl}
+                  onChange={(e) =>
+                    setEditPublishedUrl(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="text-sm">Caption</span>
+                <textarea
+                  rows={4}
+                  value={editCaption}
+                  onChange={(e) =>
+                    setEditCaption(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="text-sm">Hashtags</span>
+                <textarea
+                  rows={2}
+                  value={editHashtags}
+                  onChange={(e) =>
+                    setEditHashtags(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label className="md:col-span-2">
+                <span className="text-sm">Notes</span>
+                <textarea
+                  rows={4}
+                  value={editNotes}
+                  onChange={(e) =>
+                    setEditNotes(e.target.value)
+                  }
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void saveChanges()}
+              disabled={isSaving || !editTitle.trim()}
+              className="mt-6 w-full rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {isSaving ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}

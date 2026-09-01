@@ -43,10 +43,18 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  settings     UserSetting[]
-  integrations Integration[]
-  calendars    ExternalCalendar[]
-  oauthStates  OAuthState[]
+  settings          UserSetting[]
+  integrations      Integration[]
+  calendars         ExternalCalendar[]
+  oauthStates       OAuthState[]
+  tasks             Task[]
+  socialContent      SocialContent[]
+  financialAccounts        FinancialAccount[]
+  bills                    Bill[]
+  plaidItems               PlaidItem[]
+  recurringBillSuggestions RecurringBillSuggestion[]
+  incomeOpportunities         IncomeOpportunity[]
+  projects                    Project[]
 }
 
 model UserSetting {
@@ -173,3 +181,231 @@ model OAuthState {
   @@index([userId])
   @@index([expiresAt])
 }
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  status      String   @default("TODO")
+  priority    String   @default("NORMAL")
+  dueAt       DateTime?
+  completedAt DateTime?
+
+  sourceType      String?
+  sourceAccount   String?
+  sourceMessageId String?
+  sourceThreadId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([dueAt])
+  @@index([sourceMessageId])
+  @@index([projectId])
+}
+
+
+model FinancialAccount {
+  id              String   @id @default(cuid())
+  name            String
+  institution     String?
+  accountType     String
+  isDebt          Boolean  @default(false)
+  isDebtTarget    Boolean  @default(false)
+
+  startingBalance Float    @default(0)
+  currentBalance  Float    @default(0)
+  minimumPayment   Float?
+  interestRate     Float?
+
+  promoBalance     Float?
+  promoInterestRate Float?
+  promoEndsAt      DateTime?
+
+  notes            String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plaidItemId    String?
+  plaidItem      PlaidItem? @relation(fields: [plaidItemId], references: [id], onDelete: SetNull)
+  plaidAccountId String?    @unique
+  plaidMask      String?
+
+  bills Bill[]
+
+  @@index([userId])
+  @@index([plaidItemId])
+  @@index([userId, isDebt])
+  @@index([userId, isDebtTarget])
+}
+
+model Bill {
+  id            String   @id @default(cuid())
+  name          String
+  amount        Float
+  frequency     String   @default("MONTHLY")
+  dueDay        Int?
+  nextDueAt     DateTime?
+  isAutopay     Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  lastPaidAt    DateTime?
+
+  notes         String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   FinancialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([nextDueAt])
+  @@index([accountId])
+}
+
+model PlaidItem {
+  id                  String   @id @default(cuid())
+  plaidItemId         String   @unique
+  institutionId       String?
+  institutionName     String?
+  encryptedAccessToken String
+
+  status              String   @default("ACTIVE")
+  lastSyncedAt        DateTime?
+  lastError           String?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accounts FinancialAccount[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model RecurringBillSuggestion {
+  id                String   @id @default(cuid())
+  plaidStreamId     String   @unique
+  merchantName      String?
+  description       String
+  frequency         String
+  averageAmount     Float
+  lastAmount        Float?
+  firstDate         DateTime?
+  lastDate          DateTime?
+  predictedNextDate DateTime?
+  status            String
+  reviewStatus      String   @default("PENDING")
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, reviewStatus])
+  @@index([predictedNextDate])
+}
+
+model IncomeOpportunity {
+  id               String   @id @default(cuid())
+  name             String
+  category         String?
+  status           String   @default("RESEARCHING")
+
+  description      String?
+  notes            String?
+  sourceUrl        String?
+
+  startupCost      Float?
+  monthlyPotential Float?
+  timeToFirstDollar String?
+
+  effortScore      Int?
+  scalabilityScore Int?
+  privacyRiskScore Int?
+  jarvisScore      Float?
+
+  nextAction       String?
+
+  actualIncome     Float    @default(0)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, status])
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("PLANNING")
+  progress    Int      @default(0)
+  nextAction  String?
+  notes       String?
+
+  sourceType  String?
+  sourceId    String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tasks         Task[]
+  socialContent SocialContent[]
+  @@index([userId])
+  @@index([userId, status])
+  @@unique([userId, sourceType, sourceId])
+}
+
+model SocialContent {
+  id            String   @id @default(cuid())
+  title         String
+  platform      String
+  status        String   @default("IDEA")
+  series        String?
+  caption       String?
+  hashtags      String?
+  publishAt     DateTime?
+  publishedUrl  String?
+  notes         String?
+
+  projectId     String?
+  project       Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, platform])
+  @@index([publishAt])
+  @@index([projectId])
+}
+

@@ -1,0 +1,224 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { prisma } from "@/lib/prisma";
+import { getOrCreateDefaultUser } from "@/repositories/user-repository";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    const user = await getOrCreateDefaultUser();
+
+    const opportunities = await prisma.incomeOpportunity.findMany({
+      where: {
+        userId: user.id,
+      },
+      orderBy: [
+        {
+          status: "asc",
+        },
+        {
+          jarvisScore: "desc",
+        },
+        {
+          createdAt: "desc",
+        },
+      ],
+    });
+
+    return NextResponse.json({
+      opportunities,
+    });
+  } catch (error) {
+    console.error("Failed to load Income Lab:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to load Income Lab.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      name?: string;
+      category?: string | null;
+      status?: string;
+      description?: string | null;
+      notes?: string | null;
+      sourceUrl?: string | null;
+      startupCost?: number | null;
+      monthlyPotential?: number | null;
+      timeToFirstDollar?: string | null;
+      effortScore?: number | null;
+      scalabilityScore?: number | null;
+      privacyRiskScore?: number | null;
+      jarvisScore?: number | null;
+      nextAction?: string | null;
+      actualIncome?: number;
+    };
+
+    if (!body.name?.trim()) {
+      return NextResponse.json(
+        {
+          error: "Opportunity name is required.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    const user = await getOrCreateDefaultUser();
+
+    const opportunity = await prisma.incomeOpportunity.create({
+      data: {
+        userId: user.id,
+        name: body.name.trim(),
+        category: body.category?.trim() || null,
+        status: body.status?.trim() || "RESEARCHING",
+        description: body.description?.trim() || null,
+        notes: body.notes?.trim() || null,
+        sourceUrl: body.sourceUrl?.trim() || null,
+        startupCost: body.startupCost ?? null,
+        monthlyPotential: body.monthlyPotential ?? null,
+        timeToFirstDollar: body.timeToFirstDollar?.trim() || null,
+        effortScore: body.effortScore ?? null,
+        scalabilityScore: body.scalabilityScore ?? null,
+        privacyRiskScore: body.privacyRiskScore ?? null,
+        jarvisScore: body.jarvisScore ?? null,
+        nextAction: body.nextAction?.trim() || null,
+        actualIncome: body.actualIncome ?? 0,
+      },
+    });
+
+    return NextResponse.json({
+      opportunity,
+    });
+  } catch (error) {
+    console.error("Failed to create Income Lab opportunity:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to create Income Lab opportunity.",
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      id?: string;
+      name?: string;
+      category?: string | null;
+      status?: string;
+      description?: string | null;
+      notes?: string | null;
+      sourceUrl?: string | null;
+      startupCost?: number | null;
+      monthlyPotential?: number | null;
+      timeToFirstDollar?: string | null;
+      effortScore?: number | null;
+      scalabilityScore?: number | null;
+      privacyRiskScore?: number | null;
+      jarvisScore?: number | null;
+      nextAction?: string | null;
+      actualIncome?: number;
+    };
+
+    if (!body.id) {
+      return NextResponse.json(
+        { error: "Opportunity ID is required." },
+        { status: 400 },
+      );
+    }
+
+    const user = await getOrCreateDefaultUser();
+
+    const existing = await prisma.incomeOpportunity.findFirst({
+      where: {
+        id: body.id,
+        userId: user.id,
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: "Income opportunity not found." },
+        { status: 404 },
+      );
+    }
+
+    const opportunity = await prisma.incomeOpportunity.update({
+      where: {
+        id: existing.id,
+      },
+      data: {
+        ...(body.name !== undefined
+          ? { name: body.name.trim() }
+          : {}),
+        ...(body.category !== undefined
+          ? { category: body.category?.trim() || null }
+          : {}),
+        ...(body.status !== undefined
+          ? { status: body.status.trim() }
+          : {}),
+        ...(body.description !== undefined
+          ? { description: body.description?.trim() || null }
+          : {}),
+        ...(body.notes !== undefined
+          ? { notes: body.notes?.trim() || null }
+          : {}),
+        ...(body.sourceUrl !== undefined
+          ? { sourceUrl: body.sourceUrl?.trim() || null }
+          : {}),
+        ...(body.startupCost !== undefined
+          ? { startupCost: body.startupCost }
+          : {}),
+        ...(body.monthlyPotential !== undefined
+          ? { monthlyPotential: body.monthlyPotential }
+          : {}),
+        ...(body.timeToFirstDollar !== undefined
+          ? { timeToFirstDollar: body.timeToFirstDollar?.trim() || null }
+          : {}),
+        ...(body.effortScore !== undefined
+          ? { effortScore: body.effortScore }
+          : {}),
+        ...(body.scalabilityScore !== undefined
+          ? { scalabilityScore: body.scalabilityScore }
+          : {}),
+        ...(body.privacyRiskScore !== undefined
+          ? { privacyRiskScore: body.privacyRiskScore }
+          : {}),
+        ...(body.jarvisScore !== undefined
+          ? { jarvisScore: body.jarvisScore }
+          : {}),
+        ...(body.nextAction !== undefined
+          ? { nextAction: body.nextAction?.trim() || null }
+          : {}),
+        ...(body.actualIncome !== undefined
+          ? { actualIncome: body.actualIncome }
+          : {}),
+      },
+    });
+
+    return NextResponse.json({ opportunity });
+  } catch (error) {
+    console.error("Failed to update Income Lab opportunity:", error);
+
+    return NextResponse.json(
+      { error: "Failed to update Income Lab opportunity." },
+      { status: 500 },
+    );
+  }
+}

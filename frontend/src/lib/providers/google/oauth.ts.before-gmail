@@ -1,0 +1,38 @@
+import { google } from "googleapis";
+
+const GOOGLE_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/calendar",
+];
+
+function requireEnvironmentVariable(name: string): string {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`${name} is not configured.`);
+  }
+
+  return value;
+}
+
+export function createGoogleOAuthClient() {
+  return new google.auth.OAuth2(
+    requireEnvironmentVariable("GOOGLE_CLIENT_ID"),
+    requireEnvironmentVariable("GOOGLE_CLIENT_SECRET"),
+    requireEnvironmentVariable("GOOGLE_REDIRECT_URI")
+  );
+}
+
+export function createGoogleAuthorizationUrl(state: string): string {
+  const client = createGoogleOAuthClient();
+
+  return client.generateAuthUrl({
+    access_type: "offline",
+    include_granted_scopes: true,
+    prompt: "consent select_account",
+    scope: GOOGLE_SCOPES,
+    state,
+  });
+}
