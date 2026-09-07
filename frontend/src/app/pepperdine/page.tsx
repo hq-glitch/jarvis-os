@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import AreaWorkspace from "@/components/areas/AreaWorkspace";
 import {
@@ -12,6 +12,29 @@ import {
 } from "@/lib/pepperdine/fall-2026";
 
 const COMPLETED_STORAGE_KEY = "jarvis-pepperdine-fall-2026-completed";
+const PEPPERDINE_SOURCE_ACCOUNT = "pepperdine-fall-2026";
+
+type PepperdineTask = {
+  id: string;
+  status: string;
+  sourceType: string | null;
+  sourceAccount: string | null;
+  sourceMessageId: string | null;
+};
+
+function assignmentSourceId(
+  week: number,
+  item: PepperdineWeekItem,
+) {
+  if (!item.dueDate) return null;
+
+  return [
+    `week-${week}`,
+    item.course,
+    item.title,
+    item.dueDate,
+  ].join("|");
+}
 
 const courseTitles: Record<string, string> = {
   "OLED 700": "Leadership Theory and Practice",
@@ -64,6 +87,9 @@ export default function PepperdinePage() {
   );
 
   const [hydrated, setHydrated] = useState(false);
+  const [pepperdineTasks, setPepperdineTasks] = useState<PepperdineTask[]>([]);
+  const [tasksLoaded, setTasksLoaded] = useState(false);
+  const migrationStarted = useRef(false);
   const [archiveOpen, setArchiveOpen] = useState(true);
 
   const currentWeek = useMemo(() => getPepperdineWeek(), []);
@@ -77,6 +103,56 @@ export default function PepperdinePage() {
       ) ?? null
     );
   }, [currentWeek]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPepperdineTasks() {
+      try {
+        const response = await fetch("/api/tasks", {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to load Jarvis tasks.");
+        }
+
+        const data = (await response.json()) as {
+          tasks: PepperdineTask[];
+        };
+
+        if (!cancelled) {
+          setPepperdineTasks(
+            data.tasks.filter(
+              (task) =>
+                task.sourceType === "PEPPERDINE" &&
+                task.sourceAccount === PEPPERDINE_SOURCE_ACCOUNT,
+            ),
+          );
+        }
+      } catch (error) {
+        console.error("Unable to load Pepperdine tasks:", error);
+      } finally {
+        if (!cancelled) {
+          setTasksLoaded(true);
+        }
+      }
+    }
+
+    void loadPepperdineTasks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const taskBySourceId = useMemo(() => {
+    return new Map(
+      pepperdineTasks
+        .filter((task) => task.sourceMessageId)
+        .map((task) => [task.sourceMessageId!, task]),
+    );
+  }, [pepperdineTasks]);
 
   useEffect(() => {
     try {
@@ -105,8 +181,84 @@ export default function PepperdinePage() {
     );
   }, [completedKeys, hydrated]);
 
-  function toggleCompleted(week: number, item: PepperdineWeekItem) {
+  function isCompleted(
+    week: number,
+    item: PepperdineWeekItem,
+  ) {
+    if (item.type === "assignment") {
+      const sourceId = assignmentSourceId(week, item);
+      const task = sourceId ? taskBySourceId.get(sourceId) : null;
+
+      return task?.status === "DONE";
+    }
+
+    return completedKeys.has(itemKey(week, item));
+  }
+
+  async function toggleCompleted(
+    week: number,
+    item: PepperdineWeekItem,
+  ) {
     const key = itemKey(week, item);
+
+    if (item.type === "assignment") {
+      const sourceId = assignmentSourceId(week, item);
+      const task = sourceId ? taskBySourceId.get(sourceId) : null;
+
+      if (!task) {
+        console.error(
+          "No Jarvis task found for Pepperdine assignment:",
+          item.title,
+        );
+        return;
+      }
+
+      const nextCompleted = !isCompleted(week, item);
+
+      try {
+        const response = await fetch("/api/tasks", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id: task.id,
+            completed: nextCompleted,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to update assignment.");
+        }
+
+        const data = (await response.json()) as {
+          task: PepperdineTask;
+        };
+
+        setPepperdineTasks((current) =>
+          current.map((existingTask) =>
+            existingTask.id === data.task.id
+              ? data.task
+              : existingTask,
+          ),
+        );
+
+        setCompletedKeys((current) => {
+          if (!current.has(key)) return current;
+
+          const next = new Set(current);
+          next.delete(key);
+          return next;
+        });
+      } catch (error) {
+        console.error(
+          "Unable to update Pepperdine assignment:",
+          error,
+        );
+      }
+
+      return;
+    }
 
     setCompletedKeys((current) => {
       const next = new Set(current);
@@ -121,18 +273,104 @@ export default function PepperdinePage() {
     });
   }
 
+  useEffect(() => {
+    if (
+      !hydrated ||
+      !tasksLoaded ||
+      migrationStarted.current
+    ) {
+      return;
+    }
+
+    migrationStarted.current = true;
+
+    async function migrateLocalAssignments() {
+      for (const week of fall2026Weeks) {
+        for (const item of week.items) {
+          if (
+            item.type !== "assignment" ||
+            !completedKeys.has(itemKey(week.week, item))
+          ) {
+            continue;
+          }
+
+          const sourceId = assignmentSourceId(week.week, item);
+          const task = sourceId ? taskBySourceId.get(sourceId) : null;
+
+          if (!task || task.status === "DONE") {
+            continue;
+          }
+
+          try {
+            const response = await fetch("/api/tasks", {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                id: task.id,
+                completed: true,
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error("Unable to migrate assignment completion.");
+            }
+
+            const data = (await response.json()) as {
+              task: PepperdineTask;
+            };
+
+            setPepperdineTasks((current) =>
+              current.map((existingTask) =>
+                existingTask.id === data.task.id
+                  ? data.task
+                  : existingTask,
+              ),
+            );
+          } catch (error) {
+            console.error(
+              "Unable to migrate Pepperdine completion:",
+              error,
+            );
+          }
+        }
+      }
+
+      setCompletedKeys((current) => {
+        const next = new Set(current);
+
+        for (const week of fall2026Weeks) {
+          for (const item of week.items) {
+            if (item.type === "assignment") {
+              next.delete(itemKey(week.week, item));
+            }
+          }
+        }
+
+        return next;
+      });
+    }
+
+    void migrateLocalAssignments();
+  }, [
+    completedKeys,
+    hydrated,
+    taskBySourceId,
+    tasksLoaded,
+  ]);
+
   const currentItems = currentWeek?.items ?? [];
 
   const activeCurrentItems = currentWeek
     ? currentItems.filter(
-        (item) =>
-          !completedKeys.has(itemKey(currentWeek.week, item)),
+        (item) => !isCompleted(currentWeek.week, item),
       )
     : [];
 
   const currentCompletedCount = currentWeek
     ? currentItems.filter((item) =>
-        completedKeys.has(itemKey(currentWeek.week, item)),
+        isCompleted(currentWeek.week, item),
       ).length
     : 0;
 
@@ -157,15 +395,13 @@ export default function PepperdinePage() {
   const archivedItems = useMemo(() => {
     return fall2026Weeks.flatMap((week) =>
       week.items
-        .filter((item) =>
-          completedKeys.has(itemKey(week.week, item)),
-        )
+        .filter((item) => isCompleted(week.week, item))
         .map((item) => ({
           week: week.week,
           item,
         })),
     );
-  }, [completedKeys]);
+  }, [completedKeys, taskBySourceId]);
 
   return (
     <>
