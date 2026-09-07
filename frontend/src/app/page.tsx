@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { rankTasks } from "@/lib/jarvis/priority-engine";
+import { buildDailyBrief } from "@/lib/jarvis/daily-brief";
 import { useEffect, useMemo, useState } from "react";
 
 type ImportedEvent = {
@@ -574,106 +575,29 @@ export default function Home() {
     gmailErrors.length,
   ]);
 
-  const recommendation = useMemo(() => {
-    if (isLoading) {
-      return {
-        title: "Checking your day.",
-        message:
-          "Jarvis is pulling your calendar, inbox, tasks, projects, content, and Income Lab.",
-      };
-    }
+  const dailyBrief = useMemo(
+    () =>
+      buildDailyBrief({
+        events: dashboard.todayEvents.map((event) => ({
+          id: event.id,
+          title: event.title,
+          startAt: event.startAt,
+          endAt: event.endAt,
+        })),
+        rankedTasks: dashboard.rankedTasks,
+        attentionEmails: dashboard.attentionEmails.map((email) => ({
+          priority: email.priority,
+        })),
+        connectionAlertCount: dashboard.connectionAlertCount,
+      }),
+    [
+      dashboard.todayEvents,
+      dashboard.rankedTasks,
+      dashboard.attentionEmails,
+      dashboard.connectionAlertCount,
+    ],
+  );
 
-    if (dashboard.connectionAlertCount > 0) {
-      return {
-        title: "A connection needs attention.",
-        message:
-          "Reconnect the affected account before relying on today's overview.",
-      };
-    }
-
-    const urgentEmails = dashboard.attentionEmails.filter(
-      (message) => message.priority === "Urgent",
-    );
-
-    if (urgentEmails.length > 0) {
-      return {
-        title: `${urgentEmails.length} urgent ${
-          urgentEmails.length === 1
-            ? "message needs"
-            : "messages need"
-        } attention.`,
-        message:
-          "Handle the urgent inbox item first, then return to your planned work.",
-      };
-    }
-
-    const topTask = dashboard.rankedTasks[0];
-
-    if (topTask && topTask.score > 0) {
-      return {
-        title: `Do this next: ${topTask.task.title}`,
-        message:
-          topTask.reasons.length > 0
-            ? `${topTask.reasons.join(" • ")}. Priority score: ${topTask.score}.`
-            : `This is your strongest open task. Priority score: ${topTask.score}.`,
-      };
-    }
-
-    const readyContent = socialContent.find(
-      (item) => item.status === "READY",
-    );
-
-    if (readyContent) {
-      return {
-        title: `Publish ${readyContent.title}.`,
-        message:
-          `${readyContent.platform} content is already ready. Finish the last mile before creating something new.`,
-      };
-    }
-
-    const activeIncomeOpportunity = incomeOpportunities
-      .filter(
-        (item) =>
-          ["ACTIVE", "TESTING"].includes(
-            item.status.toUpperCase(),
-          ) && Boolean(item.nextAction),
-      )
-      .sort(
-        (a, b) =>
-          (b.jarvisScore ?? 0) - (a.jarvisScore ?? 0),
-      )[0];
-
-    if (activeIncomeOpportunity) {
-      return {
-        title: `Move ${activeIncomeOpportunity.name} forward.`,
-        message:
-          activeIncomeOpportunity.nextAction ??
-          "Take the next concrete income-producing action.",
-      };
-    }
-
-    if (dashboard.todayEvents.length >= 6) {
-      return {
-        title: "Protect your bandwidth.",
-        message:
-          "Today is calendar-heavy. Focus on scheduled commitments and avoid adding unnecessary work.",
-      };
-    }
-
-    return {
-      title: "You have capacity.",
-      message:
-        "Choose one active project or Income Lab opportunity and move it forward.",
-    };
-  }, [
-    dashboard.attentionEmails,
-    dashboard.connectionAlertCount,
-    dashboard.rankedTasks,
-    dashboard.todayEvents.length,
-    socialContent,
-    incomeOpportunities,
-    isLoading,
-  ]);
 
   return (
     <main className="min-h-screen bg-[#F3EFE7] px-6 py-10 text-[#2C2C2C] lg:px-10">
@@ -739,86 +663,68 @@ export default function Home() {
           ))}
         </section>
 
-        <section className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-          <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-[0_12px_35px_rgba(30,58,52,0.05)]">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
-                  Schedule
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-[#1E3A34]">
-                  Today
-                </h2>
-              </div>
+        <section className="mt-6 overflow-hidden rounded-2xl border border-[#B08D57] bg-[#1E3A34] text-white shadow-sm">
+        <div className="border-b border-white/10 px-6 py-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D6B77A]">
+            Daily Command Brief
+          </p>
 
-              <Link
-                href="/calendar"
-                className="text-sm font-medium text-[#7C5F33]"
-              >
-                Open Calendar →
-              </Link>
+          <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm text-white/70">
+                {dailyBrief.greeting}
+              </p>
+
+              <h2 className="mt-1 font-[family-name:var(--font-cormorant)] text-3xl font-semibold">
+                {dailyBrief.headline}
+              </h2>
             </div>
 
-            <div className="mt-5 space-y-3">
-              {isLoading ? (
-                <p className="text-[#7A826E]">
-                  Loading today’s calendar…
-                </p>
-              ) : dashboard.todayEvents.length === 0 ? (
-                <div className="rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4 text-[#6F776B]">
-                  No scheduled events today.
+            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#F3EFE7]">
+              {dailyBrief.status}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#D6B77A]">
+              Situation
+            </p>
+
+            <div className="mt-4 space-y-3">
+              {dailyBrief.summary.map((item) => (
+                <div
+                  key={item}
+                  className="flex gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3"
+                >
+                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#D6B77A]" />
+
+                  <p className="text-sm leading-6 text-[#F3EFE7]">
+                    {item}
+                  </p>
                 </div>
-              ) : (
-                dashboard.todayEvents.slice(0, 5).map((event) => {
-                  const color = normalizeColor(
-                    event.calendarColor,
-                  );
-
-                  return (
-                    <div
-                      key={event.id}
-                      className="flex items-center gap-4 rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4"
-                      style={{
-                        borderLeftWidth: 4,
-                        borderLeftColor: color,
-                      }}
-                    >
-                      <span className="min-w-[5.5rem] text-sm font-medium text-[#5F665C]">
-                        {formatEventTime(event)}
-                      </span>
-
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">
-                          {event.title}
-                        </p>
-
-                        <p className="mt-1 text-xs text-[#7A826E]">
-                          {event.calendarName}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+              ))}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#B08D57] bg-[#E9E2D6] p-6 shadow-[0_12px_35px_rgba(176,141,87,0.10)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C5F33]">
-              Jarvis recommendation
+          <div className="rounded-2xl bg-[#F3EFE7] p-5 text-[#2C2C2C]">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9A7A45]">
+              Recommended First Move
             </p>
 
-            <h2 className="mt-3 text-3xl font-semibold text-[#1E3A34]">
-              {recommendation.title}
-            </h2>
+            <h3 className="mt-3 font-[family-name:var(--font-cormorant)] text-2xl font-semibold leading-tight text-[#1E3A34]">
+              {dailyBrief.recommendation}
+            </h3>
 
-            <p className="mt-3 leading-7 text-[#5F665C]">
-              {recommendation.message}
+            <p className="mt-3 text-sm leading-6 text-[#667066]">
+              {dailyBrief.recommendationReason}
             </p>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="mt-6 grid gap-6 xl:grid-cols-2">
+      <section className="mt-6 grid gap-6 xl:grid-cols-2">
           <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-[0_12px_35px_rgba(30,58,52,0.05)]">
             <div className="flex items-center justify-between gap-4">
               <div>
