@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { rankTasks } from "@/lib/jarvis/priority-engine";
 import { useEffect, useMemo, useState } from "react";
 
 type ImportedEvent = {
@@ -489,6 +490,8 @@ export default function Home() {
         );
       });
 
+    const rankedTasks = rankTasks(openTasks);
+
     const unreadCount = gmailAccounts.reduce(
       (total, account) =>
         total +
@@ -554,6 +557,7 @@ export default function Home() {
       todayEvents,
       attentionEmails,
       openTasks,
+      rankedTasks,
       activeProjects,
       areaOverview,
       unreadCount,
@@ -587,8 +591,6 @@ export default function Home() {
       };
     }
 
-    const now = new Date();
-
     const urgentEmails = dashboard.attentionEmails.filter(
       (message) => message.priority === "Urgent",
     );
@@ -605,36 +607,15 @@ export default function Home() {
       };
     }
 
-    const overdueTask = dashboard.openTasks.find((task) => {
-      if (!task.dueAt) return false;
+    const topTask = dashboard.rankedTasks[0];
 
-      const due = new Date(task.dueAt);
-
-      return !Number.isNaN(due.getTime()) && due < now;
-    });
-
-    if (overdueTask) {
+    if (topTask && topTask.score > 0) {
       return {
-        title: `Finish: ${overdueTask.title}`,
+        title: `Do this next: ${topTask.task.title}`,
         message:
-          "This task is overdue, so clear it before starting lower-priority work.",
-      };
-    }
-
-    const highPriorityTask = dashboard.openTasks.find(
-      (task) =>
-        task.priority === "HIGH" &&
-        !(
-          task.sourceType === "EMAIL" &&
-          !task.dueAt
-        ),
-    );
-
-    if (highPriorityTask) {
-      return {
-        title: `Do this next: ${highPriorityTask.title}`,
-        message:
-          "This is your highest-priority open task.",
+          topTask.reasons.length > 0
+            ? `${topTask.reasons.join(" • ")}. Priority score: ${topTask.score}.`
+            : `This is your strongest open task. Priority score: ${topTask.score}.`,
       };
     }
 
@@ -671,46 +652,6 @@ export default function Home() {
       };
     }
 
-    const unfinishedContent = socialContent.find((item) =>
-      ["FILMED", "EDITING"].includes(item.status),
-    );
-
-    if (
-      unfinishedContent &&
-      dashboard.todayEvents.length <= 3
-    ) {
-      return {
-        title: `Finish ${unfinishedContent.title}.`,
-        message:
-          `${unfinishedContent.platform} content is already in progress. Finish existing work before starting a new idea.`,
-      };
-    }
-
-    const projectWithNextAction =
-      dashboard.activeProjects.find(
-        (project) => Boolean(project.nextAction),
-      );
-
-    if (
-      projectWithNextAction &&
-      dashboard.todayEvents.length <= 3
-    ) {
-      return {
-        title: `Move ${projectWithNextAction.name} forward.`,
-        message:
-          projectWithNextAction.nextAction ??
-          "Take the next concrete project action.",
-      };
-    }
-
-    if (dashboard.openTasks.length > 0) {
-      return {
-        title: `Do this next: ${dashboard.openTasks[0].title}`,
-        message:
-          "This is the strongest remaining open task in your queue.",
-      };
-    }
-
     if (dashboard.todayEvents.length >= 6) {
       return {
         title: "Protect your bandwidth.",
@@ -727,8 +668,7 @@ export default function Home() {
   }, [
     dashboard.attentionEmails,
     dashboard.connectionAlertCount,
-    dashboard.activeProjects,
-    dashboard.openTasks,
+    dashboard.rankedTasks,
     dashboard.todayEvents.length,
     socialContent,
     incomeOpportunities,
