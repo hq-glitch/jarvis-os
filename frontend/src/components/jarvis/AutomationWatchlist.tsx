@@ -16,10 +16,18 @@ type AutomationAction = {
   score: number;
 };
 
+type AutomationDecision = {
+  action: AutomationAction;
+  level: "AUTO" | "SUGGEST" | "APPROVAL_REQUIRED";
+  canExecuteAutomatically: boolean;
+  requiresApproval: boolean;
+  reason: string;
+};
+
 type AutomationPreview = {
   openTaskCount: number;
   proposedActionCount: number;
-  actions: AutomationAction[];
+  actions: AutomationDecision[];
 };
 
 function actionLabel(type: AutomationAction["type"]) {
@@ -126,42 +134,55 @@ export default function AutomationWatchlist() {
           </div>
         ) : (
           <div className="space-y-3">
-            {preview.actions.map((action) => (
-              <div
-                key={action.id}
-                className="rounded-xl border border-[#D8D0C3] bg-[#F8F5EF] p-4"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-[#E9E0D0] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#725B35]">
-                        {actionLabel(action.type)}
-                      </span>
+            {preview.actions.map((decision) => {
+              const action = decision.action;
 
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6F776B]">
-                        {action.level === "APPROVAL_REQUIRED"
-                          ? "Approval required"
-                          : action.level === "AUTO"
-                            ? "Automatic"
-                            : "Suggestion"}
-                      </span>
+              return (
+                <div
+                  key={action.id}
+                  className="rounded-xl border border-[#D8D0C3] bg-[#F8F5EF] p-4"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-[#E9E0D0] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#725B35]">
+                          {actionLabel(action.type)}
+                        </span>
+
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6F776B]">
+                          {decision.requiresApproval
+                            ? "Approval required"
+                            : decision.canExecuteAutomatically
+                              ? "Automatic"
+                              : "Suggestion"}
+                        </span>
+                      </div>
+
+                      <p className="mt-2 font-semibold text-[#1E3A34]">
+                        {action.title}
+                      </p>
+
+                      <p className="mt-1 text-sm text-[#6F776B]">
+                        {action.description}
+                      </p>
+
+                      <div className="mt-3 rounded-lg border border-[#E3DCCD] bg-white/70 px-3 py-2">
+                        <p className="text-xs text-[#6F776B]">
+                          <span className="font-semibold text-[#1E3A34]">
+                            Jarvis policy:
+                          </span>{" "}
+                          {decision.reason}
+                        </p>
+                      </div>
                     </div>
 
-                    <p className="mt-2 font-semibold text-[#1E3A34]">
-                      {action.title}
-                    </p>
-
-                    <p className="mt-1 text-sm text-[#6F776B]">
-                      {action.description}
-                    </p>
-                  </div>
-
-                  <div className="shrink-0 text-xs font-semibold text-[#9A7A45]">
-                    {action.score}
+                    <div className="shrink-0 text-xs font-semibold text-[#9A7A45]">
+                      {action.score}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

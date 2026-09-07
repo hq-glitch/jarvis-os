@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getOrCreateDefaultUser } from "@/repositories/user-repository";
 import { rankTasks } from "@/lib/jarvis/priority-engine";
 import { evaluateAutomations } from "@/lib/jarvis/automation-engine";
+import { applyAutomationPolicy } from "@/lib/jarvis/automation-policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,10 +44,14 @@ export async function GET() {
       rankedTasks,
     });
 
+    const decisions = actions.map(
+      applyAutomationPolicy,
+    );
+
     return NextResponse.json({
       openTaskCount: tasks.length,
-      proposedActionCount: actions.length,
-      actions: actions.slice(0, 20),
+      proposedActionCount: decisions.length,
+      actions: decisions.slice(0, 20),
     });
   } catch (error) {
     console.error(
