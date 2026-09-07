@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { rankTasks } from "@/lib/jarvis/priority-engine";
 import { buildDailyBrief } from "@/lib/jarvis/daily-brief";
+import QuickCapture from "@/components/jarvis/QuickCapture";
 import { useEffect, useMemo, useState } from "react";
 
 type ImportedEvent = {
@@ -723,6 +724,10 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <div className="mt-6">
+        <QuickCapture />
+      </div>
 
       <section className="mt-6 grid gap-6 xl:grid-cols-2">
           <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-[0_12px_35px_rgba(30,58,52,0.05)]">
