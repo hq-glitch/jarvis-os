@@ -57,6 +57,7 @@ model User {
   recurringBillSuggestions RecurringBillSuggestion[]
   incomeOpportunities      IncomeOpportunity[]
   projects                 Project[]
+  automationActionStates   AutomationActionState[]
 }
 
 model UserSetting {
@@ -465,4 +466,30 @@ model SocialContent {
   @@index([userId, platform])
   @@index([publishAt])
   @@index([projectId])
+}
+
+model AutomationActionState {
+  id String @id @default(cuid())
+
+  actionId   String
+  actionType String
+  taskId     String?
+
+  status String @default("ACTIVE")
+
+  snoozedUntil DateTime?
+  dismissedAt  DateTime?
+  approvedAt   DateTime?
+  executedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, actionId])
+  @@index([userId, status])
+  @@index([taskId])
+  @@index([snoozedUntil])
 }
