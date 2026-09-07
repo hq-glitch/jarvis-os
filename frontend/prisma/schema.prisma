@@ -46,6 +46,7 @@ model User {
   settings                 UserSetting[]
   integrations             Integration[]
   calendars                ExternalCalendar[]
+  calendarSourceSyncs      CalendarSourceSync[]
   oauthStates              OAuthState[]
   tasks                    Task[]
   areas                    Area[]
@@ -165,6 +166,33 @@ model CalendarEvent {
   @@index([startAt])
   @@index([endAt])
   @@index([recurringEventId])
+}
+
+model CalendarSourceSync {
+  id String @id @default(cuid())
+
+  sourceType    String
+  sourceAccount String
+  sourceId      String
+
+  calendarId      String
+  externalEventId String
+  htmlLink        String?
+
+  title   String
+  startAt DateTime
+  endAt   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, sourceAccount, sourceId])
+  @@index([userId])
+  @@index([calendarId])
+  @@index([externalEventId])
 }
 
 model OAuthState {
