@@ -44,7 +44,41 @@ export async function GET() {
       rankedTasks,
     });
 
-    const decisions = actions.map(
+    const actionStates =
+      await prisma.automationActionState.findMany({
+        where: {
+          userId: user.id,
+        },
+      });
+
+    const now = new Date();
+
+    const visibleActions = actions.filter((action) => {
+      const state = actionStates.find(
+        (candidate) =>
+          candidate.actionId === action.id,
+      );
+
+      if (!state) {
+        return true;
+      }
+
+      if (state.status === "DISMISSED") {
+        return false;
+      }
+
+      if (
+        state.status === "SNOOZED" &&
+        state.snoozedUntil &&
+        state.snoozedUntil > now
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    const decisions = visibleActions.map(
       applyAutomationPolicy,
     );
 
