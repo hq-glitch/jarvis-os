@@ -11,10 +11,19 @@ export type BriefEmail = {
   priority: string;
 };
 
+export type BriefIncomeOpportunity = {
+  name: string;
+  status: string;
+  jarvisScore: number | null;
+  nextAction: string | null;
+  monthlyPotential: number | null;
+};
+
 export type DailyBriefInput = {
   events: BriefEvent[];
   rankedTasks: ScoredTask[];
   attentionEmails: BriefEmail[];
+  incomeOpportunities: BriefIncomeOpportunity[];
   connectionAlertCount: number;
   now?: Date;
 };
@@ -60,6 +69,22 @@ export function buildDailyBrief(
   const urgentEmails = input.attentionEmails.filter(
     (email) => email.priority === "Urgent",
   );
+
+  const activeIncomeOpportunities =
+    input.incomeOpportunities.filter(
+      (opportunity) =>
+        !["DONE", "COMPLETED", "ARCHIVED"].includes(
+          opportunity.status.toUpperCase(),
+        ),
+    );
+
+  const strongestIncomeOpportunity =
+    [...activeIncomeOpportunities]
+      .filter((opportunity) => opportunity.jarvisScore !== null)
+      .sort(
+        (a, b) =>
+          (b.jarvisScore ?? 0) - (a.jarvisScore ?? 0),
+      )[0];
 
   const dueSoonTasks = openRankedTasks.filter((item) => {
     if (!item.task.dueAt) return false;
@@ -135,6 +160,15 @@ export function buildDailyBrief(
     );
   } else {
     summary.push("No email currently requires attention.");
+  }
+
+  if (strongestIncomeOpportunity) {
+    summary.push(
+      `Income Lab has ${activeIncomeOpportunities.length} active ${plural(
+        activeIncomeOpportunities.length,
+        "opportunity",
+      )}; ${strongestIncomeOpportunity.name} currently ranks highest.`,
+    );
   }
 
   if (input.connectionAlertCount > 0) {

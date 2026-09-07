@@ -590,12 +590,14 @@ export default function Home() {
         attentionEmails: dashboard.attentionEmails.map((email) => ({
           priority: email.priority,
         })),
+        incomeOpportunities,
         connectionAlertCount: dashboard.connectionAlertCount,
       }),
     [
       dashboard.todayEvents,
       dashboard.rankedTasks,
       dashboard.attentionEmails,
+      incomeOpportunities,
       dashboard.connectionAlertCount,
     ],
   );
