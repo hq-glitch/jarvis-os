@@ -30,6 +30,8 @@ type AutomationPreview = {
   actions: AutomationDecision[];
 };
 
+type ActionType = "COMPLETE" | "SNOOZE" | "DISMISS";
+
 function actionLabel(type: AutomationAction["type"]) {
   switch (type) {
     case "OVERDUE_TASK":
@@ -47,6 +49,8 @@ export default function AutomationWatchlist() {
   const [preview, setPreview] =
     useState<AutomationPreview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [actingOn, setActingOn] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const loadPreview = useCallback(async () => {
     try {
@@ -95,6 +99,130 @@ export default function AutomationWatchlist() {
     };
   }, [loadPreview]);
 
+  async function performAction(
+    decision: AutomationDecision,
+    actionType: ActionType,
+  ) {
+    const taskId = decision.action.taskId;
+
+    if (!taskId) {
+      setActionError(
+        "Jarvis cannot act on this suggestion because it has no task.",
+      );
+      return;
+    }
+
+    setActingOn(decision.action.id);
+    setActionError(null);
+
+    try {
+      const response = await fetch(
+        "/api/jarvis/automation-action",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: actionType,
+            actionId: decision.action.id,
+            automationType: decision.action.type,
+            taskId,
+          }),
+        },
+      );
+
+      const data = (await response.json()) as {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Jarvis could not perform that action.",
+        );
+      }
+
+      await loadPreview();
+    } catch (error) {
+      console.error(
+        "Jarvis automation action failed:",
+        error,
+      );
+
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Jarvis could not perform that action.",
+      );
+    } finally {
+      setActingOn(null);
+    }
+  }
+
+  async function snoozeTask(decision: AutomationDecision) {
+    const snoozedUntil = new Date();
+    snoozedUntil.setDate(snoozedUntil.getDate() + 1);
+    snoozedUntil.setHours(9, 0, 0, 0);
+
+    const taskId = decision.action.taskId;
+
+    if (!taskId) {
+      setActionError(
+        "Jarvis cannot snooze this suggestion because it has no task.",
+      );
+      return;
+    }
+
+    setActingOn(decision.action.id);
+    setActionError(null);
+
+    try {
+      const response = await fetch(
+        "/api/jarvis/automation-action",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "SNOOZE",
+            actionId: decision.action.id,
+            automationType: decision.action.type,
+            taskId,
+            snoozedUntil: snoozedUntil.toISOString(),
+          }),
+        },
+      );
+
+      const data = (await response.json()) as {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Jarvis could not snooze that task.",
+        );
+      }
+
+      await loadPreview();
+    } catch (error) {
+      console.error(
+        "Jarvis snooze action failed:",
+        error,
+      );
+
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "Jarvis could not snooze that task.",
+      );
+    } finally {
+      setActingOn(null);
+    }
+  }
+
   return (
     <section className="rounded-2xl border border-[#D8D0C3] bg-white/70 p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
@@ -121,6 +249,14 @@ export default function AutomationWatchlist() {
       </div>
 
       <div className="mt-4">
+        {actionError && (
+          <div className="mb-3 rounded-xl border border-[#C9AFAF] bg-[#FBF4F4] px-4 py-3">
+            <p className="text-sm text-[#7A4545]">
+              {actionError}
+            </p>
+          </div>
+        )}
+
         {loading ? (
           <p className="text-sm text-[#6F776B]">
             Jarvis is checking...
@@ -136,6 +272,7 @@ export default function AutomationWatchlist() {
           <div className="space-y-3">
             {preview.actions.map((decision) => {
               const action = decision.action;
+              const isActing = actingOn === action.id;
 
               return (
                 <div
@@ -173,6 +310,49 @@ export default function AutomationWatchlist() {
                           </span>{" "}
                           {decision.reason}
                         </p>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={isActing}
+                          onClick={() =>
+                            void performAction(
+                              decision,
+                              "COMPLETE",
+                            )
+                          }
+                          className="rounded-lg bg-[#1E3A34] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#294D44] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isActing
+                            ? "Working..."
+                            : "Complete"}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isActing}
+                          onClick={() =>
+                            void snoozeTask(decision)
+                          }
+                          className="rounded-lg border border-[#B8AA95] bg-white px-3 py-2 text-xs font-semibold text-[#725B35] transition hover:bg-[#F0EBDD] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Snooze 1 day
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isActing}
+                          onClick={() =>
+                            void performAction(
+                              decision,
+                              "DISMISS",
+                            )
+                          }
+                          className="rounded-lg border border-[#D8D0C3] px-3 py-2 text-xs font-semibold text-[#6F776B] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Dismiss
+                        </button>
                       </div>
                     </div>
 
