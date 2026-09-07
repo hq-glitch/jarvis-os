@@ -72,6 +72,31 @@ type Project = {
   notes: string | null;
 };
 
+type AreaTask = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  dueAt: string | null;
+  completedAt: string | null;
+};
+
+type AreaProject = {
+  id: string;
+  name: string;
+  status: string;
+  progress: number;
+  nextAction: string | null;
+};
+
+type Area = {
+  id: string;
+  name: string;
+  slug: string;
+  projects: AreaProject[];
+  tasks: AreaTask[];
+};
+
 type SocialContent = {
   id: string;
   title: string;
@@ -190,6 +215,15 @@ function classifyAttentionEmail(
   return null;
 }
 
+const AREA_ROUTES: Record<string, string> = {
+  jarvis: "/",
+  finance: "/finance",
+  pepperdine: "/pepperdine",
+  "social-media": "/social-media",
+  "income-lab": "/income-lab",
+  "rouke-ranch": "/ranch",
+};
+
 export default function Home() {
   const [events, setEvents] = useState<ImportedEvent[]>([]);
   const [calendarErrors, setCalendarErrors] = useState<
@@ -201,6 +235,7 @@ export default function Home() {
   >([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
   const [socialContent, setSocialContent] = useState<SocialContent[]>([]);
   const [incomeOpportunities, setIncomeOpportunities] =
     useState<IncomeOpportunity[]>([]);
@@ -232,6 +267,7 @@ export default function Home() {
           emailResponse,
           taskResponse,
           projectResponse,
+          areaResponse,
           socialResponse,
           incomeResponse,
         ] = await Promise.all([
@@ -247,6 +283,9 @@ export default function Home() {
           fetch("/api/projects", {
             cache: "no-store",
           }),
+          fetch("/api/areas", {
+            cache: "no-store",
+          }),
           fetch("/api/social-media", {
             cache: "no-store",
           }),
@@ -260,6 +299,7 @@ export default function Home() {
           !emailResponse.ok ||
           !taskResponse.ok ||
           !projectResponse.ok ||
+          !areaResponse.ok ||
           !socialResponse.ok ||
           !incomeResponse.ok
         ) {
@@ -286,6 +326,10 @@ export default function Home() {
           projects: Project[];
         };
 
+        const areaData = (await areaResponse.json()) as {
+          areas: Area[];
+        };
+
         const socialData = (await socialResponse.json()) as {
           content: SocialContent[];
         };
@@ -306,6 +350,7 @@ export default function Home() {
         setGmailErrors(emailData.connectionErrors ?? []);
         setTasks(taskData.tasks ?? []);
         setProjects(projectData.projects ?? []);
+        setAreas(areaData.areas ?? []);
         setSocialContent(socialData.content ?? []);
         setIncomeOpportunities(incomeData.opportunities ?? []);
       } catch (error) {
@@ -452,11 +497,47 @@ export default function Home() {
         return a.progress - b.progress;
       });
 
+    const areaOverview = areas
+      .map((area) => {
+        const openAreaTasks = (area.tasks ?? []).filter(
+          (task) =>
+            !task.completedAt &&
+            task.status.toUpperCase() !== "DONE",
+        );
+
+        const activeAreaProjects = (area.projects ?? []).filter(
+          (project) =>
+            !["DONE", "COMPLETED", "ARCHIVED"].includes(
+              project.status.toUpperCase(),
+            ),
+        );
+
+        const nextActionCount = activeAreaProjects.filter(
+          (project) => Boolean(project.nextAction),
+        ).length;
+
+        return {
+          ...area,
+          openTaskCount: openAreaTasks.length,
+          activeProjectCount: activeAreaProjects.length,
+          nextActionCount,
+          attentionCount: openAreaTasks.length + nextActionCount,
+        };
+      })
+      .sort((a, b) => {
+        if (a.attentionCount !== b.attentionCount) {
+          return b.attentionCount - a.attentionCount;
+        }
+
+        return a.name.localeCompare(b.name);
+      });
+
     return {
       todayEvents,
       attentionEmails,
       openTasks,
       activeProjects,
+      areaOverview,
       unreadCount,
       connectionAlertCount:
         calendarErrors.length + gmailErrors.length,
@@ -466,6 +547,7 @@ export default function Home() {
     gmailAccounts,
     tasks,
     projects,
+    areas,
     calendarErrors.length,
     gmailErrors.length,
   ]);
@@ -898,6 +980,68 @@ export default function Home() {
                 ))
               )}
             </div>
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B08D57]">
+              Life architecture
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-[#1E3A34]">
+              Areas requiring attention
+            </h2>
+            <p className="mt-2 text-sm text-[#6F776B]">
+              Where your active commitments are concentrated right now.
+            </p>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {isLoading ? (
+              <div className="rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4 text-[#6F776B]">
+                Loading Areas…
+              </div>
+            ) : dashboard.areaOverview.length === 0 ? (
+              <div className="rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4 text-[#6F776B]">
+                No Areas found.
+              </div>
+            ) : (
+              dashboard.areaOverview.map((area) => (
+                <Link
+                  key={area.id}
+                  href={AREA_ROUTES[area.slug] ?? "/projects"}
+                  className="rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-5 transition hover:border-[#B08D57] hover:bg-white"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-semibold text-[#1E3A34]">
+                        {area.name}
+                      </p>
+                      <p className="mt-1 text-xs text-[#7A826E]">
+                        {area.activeProjectCount} active{" "}
+                        {area.activeProjectCount === 1 ? "project" : "projects"}
+                      </p>
+                    </div>
+
+                    <span className="rounded-full bg-[#1E3A34] px-2.5 py-1 text-xs font-semibold text-white">
+                      {area.attentionCount}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-[#D7D0C5] bg-white px-2.5 py-1 text-xs text-[#5F665C]">
+                      {area.openTaskCount} open{" "}
+                      {area.openTaskCount === 1 ? "task" : "tasks"}
+                    </span>
+
+                    <span className="rounded-full border border-[#D7D0C5] bg-white px-2.5 py-1 text-xs text-[#5F665C]">
+                      {area.nextActionCount} next{" "}
+                      {area.nextActionCount === 1 ? "action" : "actions"}
+                    </span>
+                  </div>
+                </Link>
+              ))
+            )}
           </div>
         </section>
 
