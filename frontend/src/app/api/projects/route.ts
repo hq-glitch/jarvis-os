@@ -15,6 +15,7 @@ export async function GET() {
         userId: user.id,
       },
       include: {
+        area: true,
         tasks: {
           orderBy: {
             updatedAt: "desc",

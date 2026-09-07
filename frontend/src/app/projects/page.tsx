@@ -17,6 +17,12 @@ type ProjectSocialContent = {
   status: string;
 };
 
+type Area = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
 type Project = {
   id: string;
   name: string;
@@ -25,6 +31,8 @@ type Project = {
   status: string;
   nextAction: string | null;
   notes: string | null;
+  areaId: string | null;
+  area: Area | null;
   tasks: ProjectTask[];
   socialContent: ProjectSocialContent[];
 };
@@ -37,7 +45,10 @@ export default function ProjectsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaId, setAreaId] = useState("");
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editAreaId, setEditAreaId] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [editProgress, setEditProgress] = useState("");
   const [editNextAction, setEditNextAction] = useState("");
@@ -48,19 +59,29 @@ export default function ProjectsPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/projects", {
-        cache: "no-store",
-      });
+      const [projectsResponse, areasResponse] = await Promise.all([
+        fetch("/api/projects", {
+          cache: "no-store",
+        }),
+        fetch("/api/areas", {
+          cache: "no-store",
+        }),
+      ]);
 
-      if (!response.ok) {
+      if (!projectsResponse.ok || !areasResponse.ok) {
         throw new Error("Unable to load projects.");
       }
 
-      const data = (await response.json()) as {
+      const projectsData = (await projectsResponse.json()) as {
         projects: Project[];
       };
 
-      setProjects(data.projects ?? []);
+      const areasData = (await areasResponse.json()) as {
+        areas: Area[];
+      };
+
+      setProjects(projectsData.projects ?? []);
+      setAreas(areasData.areas ?? []);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -78,6 +99,7 @@ export default function ProjectsPage() {
 
   function openProjectEditor(project: Project) {
     setEditingProject(project);
+    setEditAreaId(project.areaId ?? "");
     setEditStatus(project.status);
     setEditProgress(String(project.progress));
     setEditNextAction(project.nextAction ?? "");
@@ -95,6 +117,7 @@ export default function ProjectsPage() {
         },
         body: JSON.stringify({
           id: editingProject.id,
+          areaId: editAreaId || null,
           status: editStatus,
           progress: Number(editProgress || 0),
           nextAction: editNextAction || null,
@@ -131,6 +154,7 @@ export default function ProjectsPage() {
         body: JSON.stringify({
           name,
           description,
+          areaId: areaId || null,
           status: "PLANNING",
           progress: 0,
           nextAction: "Choose the first action for this project",
@@ -143,6 +167,7 @@ export default function ProjectsPage() {
 
       setName("");
       setDescription("");
+      setAreaId("");
       setIsFormOpen(false);
 
       await loadProjects();
@@ -223,6 +248,25 @@ export default function ProjectsPage() {
                   className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
                 />
               </label>
+
+              <label>
+                <span className="text-sm text-[#6F776B]">
+                  Area
+                </span>
+
+                <select
+                  value={areaId}
+                  onChange={(event) => setAreaId(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="">No area</option>
+                  {areas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <button
@@ -250,6 +294,9 @@ export default function ProjectsPage() {
                     <h2 className="text-xl font-semibold text-[#1E3A34]">
                       {project.name}
                     </h2>
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#7C5F33]">
+                      {project.area?.name ?? "No area"}
+                    </p>
 
                     {project.description && (
                       <p className="mt-2 text-sm leading-6 text-[#6F776B]">
@@ -415,6 +462,22 @@ export default function ProjectsPage() {
             </div>
 
             <div className="mt-5 grid gap-4">
+              <label>
+                <span className="text-sm">Area</span>
+                <select
+                  value={editAreaId}
+                  onChange={(event) => setEditAreaId(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="">No area</option>
+                  {areas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <label>
                 <span className="text-sm">Status</span>
                 <select
