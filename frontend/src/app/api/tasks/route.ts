@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-
 import { prisma } from "@/lib/prisma";
 import { getOrCreateDefaultUser } from "@/repositories/user-repository";
 
@@ -12,6 +11,14 @@ export async function GET() {
   const tasks = await prisma.task.findMany({
     where: {
       userId: user.id,
+    },
+    include: {
+      area: true,
+      project: {
+        include: {
+          area: true,
+        },
+      },
     },
     orderBy: [
       {
@@ -43,6 +50,7 @@ export async function POST(request: NextRequest) {
       sourceMessageId?: string | null;
       sourceThreadId?: string | null;
       projectId?: string | null;
+      areaId?: string | null;
     };
 
     const title = body.title?.trim();
@@ -78,6 +86,75 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const requestedProjectId = body.projectId?.trim() || null;
+    const requestedAreaId = body.areaId?.trim() || null;
+
+    let projectAreaId: string | null = null;
+
+    if (requestedProjectId) {
+      const project = await prisma.project.findFirst({
+        where: {
+          id: requestedProjectId,
+          userId: user.id,
+        },
+        select: {
+          id: true,
+          areaId: true,
+        },
+      });
+
+      if (!project) {
+        return NextResponse.json(
+          {
+            error: "Project not found.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      projectAreaId = project.areaId;
+    }
+
+    if (requestedAreaId) {
+      const area = await prisma.area.findFirst({
+        where: {
+          id: requestedAreaId,
+          userId: user.id,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!area) {
+        return NextResponse.json(
+          {
+            error: "Area not found.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+    }
+
+    if (
+      requestedProjectId &&
+      requestedAreaId &&
+      requestedAreaId !== projectAreaId
+    ) {
+      return NextResponse.json(
+        {
+          error: "Task area does not match the project's area.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
     const task = await prisma.task.create({
       data: {
         userId: user.id,
@@ -89,7 +166,16 @@ export async function POST(request: NextRequest) {
         sourceAccount: body.sourceAccount?.trim() || null,
         sourceMessageId: body.sourceMessageId?.trim() || null,
         sourceThreadId: body.sourceThreadId?.trim() || null,
-        projectId: body.projectId?.trim() || null,
+        projectId: requestedProjectId,
+        areaId: requestedProjectId ? null : requestedAreaId,
+      },
+      include: {
+        area: true,
+        project: {
+          include: {
+            area: true,
+          },
+        },
       },
     });
 
@@ -121,6 +207,7 @@ export async function PATCH(request: NextRequest) {
       dueAt?: string | null;
       completed?: boolean;
       projectId?: string | null;
+      areaId?: string | null;
     };
 
     if (!body.id) {
@@ -150,6 +237,83 @@ export async function PATCH(request: NextRequest) {
         },
         {
           status: 404,
+        },
+      );
+    }
+
+    const nextProjectId =
+      body.projectId !== undefined
+        ? body.projectId?.trim() || null
+        : existing.projectId;
+
+    const requestedAreaId =
+      body.areaId !== undefined
+        ? body.areaId?.trim() || null
+        : existing.areaId;
+
+    let projectAreaId: string | null = null;
+
+    if (nextProjectId) {
+      const project = await prisma.project.findFirst({
+        where: {
+          id: nextProjectId,
+          userId: user.id,
+        },
+        select: {
+          id: true,
+          areaId: true,
+        },
+      });
+
+      if (!project) {
+        return NextResponse.json(
+          {
+            error: "Project not found.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      projectAreaId = project.areaId;
+    }
+
+    if (requestedAreaId) {
+      const area = await prisma.area.findFirst({
+        where: {
+          id: requestedAreaId,
+          userId: user.id,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!area) {
+        return NextResponse.json(
+          {
+            error: "Area not found.",
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+    }
+
+    if (
+      nextProjectId &&
+      body.areaId !== undefined &&
+      requestedAreaId &&
+      requestedAreaId !== projectAreaId
+    ) {
+      return NextResponse.json(
+        {
+          error: "Task area does not match the project's area.",
+        },
+        {
+          status: 400,
         },
       );
     }
@@ -187,9 +351,22 @@ export async function PATCH(request: NextRequest) {
           : {}),
         ...(body.projectId !== undefined
           ? {
-              projectId: body.projectId?.trim() || null,
+              projectId: nextProjectId,
             }
           : {}),
+        ...(body.areaId !== undefined || body.projectId !== undefined
+          ? {
+              areaId: nextProjectId ? null : requestedAreaId,
+            }
+          : {}),
+      },
+      include: {
+        area: true,
+        project: {
+          include: {
+            area: true,
+          },
+        },
       },
     });
 

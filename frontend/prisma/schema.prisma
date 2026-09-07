@@ -43,18 +43,19 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  settings          UserSetting[]
-  integrations      Integration[]
-  calendars         ExternalCalendar[]
-  oauthStates       OAuthState[]
-  tasks             Task[]
-  socialContent      SocialContent[]
+  settings                 UserSetting[]
+  integrations             Integration[]
+  calendars                ExternalCalendar[]
+  oauthStates              OAuthState[]
+  tasks                    Task[]
+  areas                    Area[]
+  socialContent            SocialContent[]
   financialAccounts        FinancialAccount[]
   bills                    Bill[]
   plaidItems               PlaidItem[]
   recurringBillSuggestions RecurringBillSuggestion[]
-  incomeOpportunities         IncomeOpportunity[]
-  projects                    Project[]
+  incomeOpportunities      IncomeOpportunity[]
+  projects                 Project[]
 }
 
 model UserSetting {
@@ -183,11 +184,11 @@ model OAuthState {
 }
 
 model Task {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   description String?
-  status      String   @default("TODO")
-  priority    String   @default("NORMAL")
+  status      String    @default("TODO")
+  priority    String    @default("NORMAL")
   dueAt       DateTime?
   completedAt DateTime?
 
@@ -205,37 +206,40 @@ model Task {
   projectId String?
   project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  areaId String?
+  area   Area?   @relation(fields: [areaId], references: [id], onDelete: SetNull)
+
   @@index([userId, status])
   @@index([dueAt])
   @@index([sourceMessageId])
   @@index([projectId])
+  @@index([areaId])
 }
 
-
 model FinancialAccount {
-  id              String   @id @default(cuid())
-  name            String
-  institution     String?
-  accountType     String
-  isDebt          Boolean  @default(false)
-  isDebtTarget    Boolean  @default(false)
+  id           String  @id @default(cuid())
+  name         String
+  institution  String?
+  accountType  String
+  isDebt       Boolean @default(false)
+  isDebtTarget Boolean @default(false)
 
-  startingBalance Float    @default(0)
-  currentBalance  Float    @default(0)
-  minimumPayment   Float?
-  interestRate     Float?
+  startingBalance Float  @default(0)
+  currentBalance  Float  @default(0)
+  minimumPayment  Float?
+  interestRate    Float?
 
-  promoBalance     Float?
+  promoBalance      Float?
   promoInterestRate Float?
-  promoEndsAt      DateTime?
+  promoEndsAt       DateTime?
 
-  notes            String?
+  notes String?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   plaidItemId    String?
   plaidItem      PlaidItem? @relation(fields: [plaidItemId], references: [id], onDelete: SetNull)
@@ -251,23 +255,23 @@ model FinancialAccount {
 }
 
 model Bill {
-  id            String   @id @default(cuid())
-  name          String
-  amount        Float
-  frequency     String   @default("MONTHLY")
-  dueDay        Int?
-  nextDueAt     DateTime?
-  isAutopay     Boolean  @default(false)
-  isActive      Boolean  @default(true)
-  lastPaidAt    DateTime?
+  id         String    @id @default(cuid())
+  name       String
+  amount     Float
+  frequency  String    @default("MONTHLY")
+  dueDay     Int?
+  nextDueAt  DateTime?
+  isAutopay  Boolean   @default(false)
+  isActive   Boolean   @default(true)
+  lastPaidAt DateTime?
 
-  notes         String?
+  notes String?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   accountId String?
   account   FinancialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
@@ -278,21 +282,21 @@ model Bill {
 }
 
 model PlaidItem {
-  id                  String   @id @default(cuid())
-  plaidItemId         String   @unique
-  institutionId       String?
-  institutionName     String?
+  id                   String  @id @default(cuid())
+  plaidItemId          String  @unique
+  institutionId        String?
+  institutionName      String?
   encryptedAccessToken String
 
-  status              String   @default("ACTIVE")
-  lastSyncedAt        DateTime?
-  lastError           String?
+  status       String    @default("ACTIVE")
+  lastSyncedAt DateTime?
+  lastError    String?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   accounts FinancialAccount[]
 
@@ -301,8 +305,8 @@ model PlaidItem {
 }
 
 model RecurringBillSuggestion {
-  id                String   @id @default(cuid())
-  plaidStreamId     String   @unique
+  id                String    @id @default(cuid())
+  plaidStreamId     String    @unique
   merchantName      String?
   description       String
   frequency         String
@@ -312,30 +316,30 @@ model RecurringBillSuggestion {
   lastDate          DateTime?
   predictedNextDate DateTime?
   status            String
-  reviewStatus      String   @default("PENDING")
+  reviewStatus      String    @default("PENDING")
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, reviewStatus])
   @@index([predictedNextDate])
 }
 
 model IncomeOpportunity {
-  id               String   @id @default(cuid())
-  name             String
-  category         String?
-  status           String   @default("RESEARCHING")
+  id       String  @id @default(cuid())
+  name     String
+  category String?
+  status   String  @default("RESEARCHING")
 
-  description      String?
-  notes            String?
-  sourceUrl        String?
+  description String?
+  notes       String?
+  sourceUrl   String?
 
-  startupCost      Float?
-  monthlyPotential Float?
+  startupCost       Float?
+  monthlyPotential  Float?
   timeToFirstDollar String?
 
   effortScore      Int?
@@ -343,69 +347,94 @@ model IncomeOpportunity {
   privacyRiskScore Int?
   jarvisScore      Float?
 
-  nextAction       String?
+  nextAction String?
 
-  actualIncome     Float    @default(0)
+  actualIncome Float @default(0)
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  userId           String
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, status])
+}
+
+model Area {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String
+  description String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projects Project[]
+  tasks    Task[]
+
+  @@unique([userId, slug])
+  @@index([userId])
+  @@index([userId, isActive])
 }
 
 model Project {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
   description String?
-  status      String   @default("PLANNING")
-  progress    Int      @default(0)
+  status      String  @default("PLANNING")
+  progress    Int     @default(0)
   nextAction  String?
   notes       String?
 
-  sourceType  String?
-  sourceId    String?
+  sourceType String?
+  sourceId   String?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  areaId        String?
+  area          Area?           @relation(fields: [areaId], references: [id], onDelete: SetNull)
   tasks         Task[]
   socialContent SocialContent[]
+
+  @@unique([userId, sourceType, sourceId])
+  @@index([areaId])
   @@index([userId])
   @@index([userId, status])
-  @@unique([userId, sourceType, sourceId])
 }
 
 model SocialContent {
-  id            String   @id @default(cuid())
-  title         String
-  platform      String
-  status        String   @default("IDEA")
-  series        String?
-  caption       String?
-  hashtags      String?
-  publishAt     DateTime?
-  publishedUrl  String?
-  notes         String?
+  id           String    @id @default(cuid())
+  title        String
+  platform     String
+  status       String    @default("IDEA")
+  series       String?
+  caption      String?
+  hashtags     String?
+  publishAt    DateTime?
+  publishedUrl String?
+  notes        String?
 
-  projectId     String?
-  project       Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
   @@index([userId, platform])
   @@index([publishAt])
   @@index([projectId])
 }
-

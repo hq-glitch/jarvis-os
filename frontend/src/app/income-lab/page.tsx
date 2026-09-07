@@ -305,6 +305,7 @@ export default function IncomeLabPage() {
           notes: notes[item.id] ?? item.notes ?? null,
           sourceType: "INCOME_LAB",
           sourceId: item.id,
+          areaId: "area_income_lab",
         }),
       });
 
@@ -363,6 +364,7 @@ export default function IncomeLabPage() {
           sourceType: "INCOME_LAB",
           sourceAccount: "income-lab",
           sourceMessageId: item.id,
+          areaId: "area_income_lab",
         }),
       });
 

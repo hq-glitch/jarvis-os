@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
       notes?: string | null;
       sourceType?: string | null;
       sourceId?: string | null;
+      areaId?: string | null;
     };
 
     if (!body.name?.trim()) {
@@ -63,6 +64,24 @@ export async function POST(request: NextRequest) {
     }
 
     const user = await getOrCreateDefaultUser();
+
+    const requestedAreaId = body.areaId?.trim() || null;
+
+    if (requestedAreaId) {
+      const area = await prisma.area.findFirst({
+        where: {
+          id: requestedAreaId,
+          userId: user.id,
+        },
+      });
+
+      if (!area) {
+        return NextResponse.json(
+          { error: "Area not found." },
+          { status: 400 },
+        );
+      }
+    }
 
     const project = await prisma.project.create({
       data: {
@@ -75,6 +94,7 @@ export async function POST(request: NextRequest) {
         notes: body.notes?.trim() || null,
         sourceType: body.sourceType?.trim() || null,
         sourceId: body.sourceId?.trim() || null,
+        areaId: requestedAreaId,
       },
     });
 
@@ -97,6 +117,7 @@ export async function PATCH(request: NextRequest) {
       progress?: number;
       nextAction?: string | null;
       notes?: string | null;
+      areaId?: string | null;
     };
 
     if (!body.id) {
@@ -107,6 +128,27 @@ export async function PATCH(request: NextRequest) {
     }
 
     const user = await getOrCreateDefaultUser();
+
+    const requestedAreaId =
+      body.areaId !== undefined
+        ? body.areaId?.trim() || null
+        : undefined;
+
+    if (requestedAreaId) {
+      const area = await prisma.area.findFirst({
+        where: {
+          id: requestedAreaId,
+          userId: user.id,
+        },
+      });
+
+      if (!area) {
+        return NextResponse.json(
+          { error: "Area not found." },
+          { status: 400 },
+        );
+      }
+    }
 
     const existing = await prisma.project.findFirst({
       where: {
@@ -147,6 +189,11 @@ export async function PATCH(request: NextRequest) {
         ...(body.notes !== undefined
           ? {
               notes: body.notes?.trim() || null,
+            }
+          : {}),
+        ...(body.areaId !== undefined
+          ? {
+              areaId: requestedAreaId,
             }
           : {}),
       },
