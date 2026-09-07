@@ -168,6 +168,27 @@ function classifyAttentionEmail(
     .join(" ")
     .toLowerCase();
 
+  const promotionalTerms = [
+    "unsubscribe",
+    "sale",
+    "save ",
+    "% off",
+    "discount",
+    "promo",
+    "promotion",
+    "rewards",
+    "points",
+    "offer",
+    "limited time",
+    "shop now",
+    "buy now",
+    "free shipping",
+    "coupon",
+    "exclusive deal",
+    "newsletter",
+    "marketing",
+  ];
+
   const urgentTerms = [
     "urgent",
     "immediately",
@@ -189,20 +210,17 @@ function classifyAttentionEmail(
     "please review",
     "please respond",
     "please reply",
-    "reminder",
-    "due",
     "deadline",
-    "sign",
     "submit",
-    "confirm",
     "approval",
-    "register",
-    "application",
     "appointment",
     "invoice",
-    "payment",
     "verify",
   ];
+
+  if (promotionalTerms.some((term) => text.includes(term))) {
+    return null;
+  }
 
   if (urgentTerms.some((term) => text.includes(term))) {
     return "Urgent";

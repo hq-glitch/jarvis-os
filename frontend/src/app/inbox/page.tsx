@@ -578,10 +578,7 @@ export default function InboxPage() {
             openMessage.message.bodyText ??
             openMessage.message.snippet ??
             null,
-          priority:
-            openMessage.message.labels.includes("IMPORTANT")
-              ? "HIGH"
-              : "NORMAL",
+          priority: "NORMAL",
           sourceType: "EMAIL",
           sourceAccount: openMessage.accountEmail,
           sourceMessageId: openMessage.message.externalId,
