@@ -152,6 +152,35 @@ export default function ProjectsPage() {
     }
   }
 
+  async function completeProjectTask(taskId: string) {
+    setError(null);
+
+    try {
+      const response = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: taskId,
+          completed: true,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to complete task.");
+      }
+
+      await loadProjects();
+    } catch (taskError) {
+      setError(
+        taskError instanceof Error
+          ? taskError.message
+          : "Unable to complete task.",
+      );
+    }
+  }
+
   async function saveProjectChanges() {
     if (!editingProject) return;
 
@@ -418,13 +447,16 @@ export default function ProjectsPage() {
                           )
                           .slice(0, 3)
                           .map((task) => (
-                            <p
+                            <button
                               key={task.id}
-                              className="text-sm text-[#3F4742]"
+                              type="button"
+                              onClick={() => void completeProjectTask(task.id)}
+                              className="block w-full text-left text-sm text-[#3F4742] hover:line-through"
+                              title="Mark complete"
                             >
                               {task.priority === "HIGH" ? "★ " : ""}
                               {task.title}
-                            </p>
+                            </button>
                           ))}
 
                         {project.tasks.filter(
