@@ -48,6 +48,8 @@ export default function ProjectsPage() {
   const [areas, setAreas] = useState<Area[]>([]);
   const [areaId, setAreaId] = useState("");
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editAreaId, setEditAreaId] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [editProgress, setEditProgress] = useState("");
@@ -99,6 +101,8 @@ export default function ProjectsPage() {
 
   function openProjectEditor(project: Project) {
     setEditingProject(project);
+    setEditName(project.name);
+    setEditDescription(project.description ?? "");
     setEditAreaId(project.areaId ?? "");
     setEditStatus(project.status);
     setEditProgress(String(project.progress));
@@ -117,6 +121,8 @@ export default function ProjectsPage() {
         },
         body: JSON.stringify({
           id: editingProject.id,
+          name: editName.trim(),
+          description: editDescription.trim() || null,
           areaId: editAreaId || null,
           status: editStatus,
           progress: Number(editProgress || 0),
@@ -462,6 +468,25 @@ export default function ProjectsPage() {
             </div>
 
             <div className="mt-5 grid gap-4">
+              <label>
+                <span className="text-sm">Project name</span>
+                <input
+                  value={editName}
+                  onChange={(event) => setEditName(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Description</span>
+                <textarea
+                  rows={3}
+                  value={editDescription}
+                  onChange={(event) => setEditDescription(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                />
+              </label>
+
               <label>
                 <span className="text-sm">Area</span>
                 <select

@@ -114,6 +114,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = (await request.json()) as {
       id?: string;
+      name?: string;
+      description?: string | null;
       status?: string;
       progress?: number;
       nextAction?: string | null;
@@ -170,6 +172,12 @@ export async function PATCH(request: NextRequest) {
         id: existing.id,
       },
       data: {
+        ...(body.name !== undefined
+          ? { name: body.name.trim() }
+          : {}),
+        ...(body.description !== undefined
+          ? { description: body.description?.trim() || null }
+          : {}),
         ...(body.status !== undefined
           ? { status: body.status }
           : {}),
