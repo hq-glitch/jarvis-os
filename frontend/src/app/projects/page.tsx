@@ -410,9 +410,23 @@ export default function ProjectsPage() {
 
                 {project.nextAction && (
                   <div className="mt-6 rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B08D57]">
-                      Next action
-                    </p>
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B08D57]">
+                        Next action
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTaskProject(project);
+                          setTaskTitle(project.nextAction ?? "");
+                          setTaskPriority("NORMAL");
+                        }}
+                        className="text-xs font-semibold text-[#1E3A34]"
+                      >
+                        Make task
+                      </button>
+                    </div>
 
                     <p className="mt-2 text-sm text-[#3F4742]">
                       {project.nextAction}
