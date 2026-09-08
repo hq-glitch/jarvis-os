@@ -55,6 +55,10 @@ export default function ProjectsPage() {
   const [editProgress, setEditProgress] = useState("");
   const [editNextAction, setEditNextAction] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [taskProject, setTaskProject] = useState<Project | null>(null);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskPriority, setTaskPriority] = useState("NORMAL");
+  const [isSavingTask, setIsSavingTask] = useState(false);
 
   async function loadProjects() {
     setIsLoading(true);
@@ -108,6 +112,44 @@ export default function ProjectsPage() {
     setEditProgress(String(project.progress));
     setEditNextAction(project.nextAction ?? "");
     setEditNotes(project.notes ?? "");
+  }
+
+  async function createProjectTask() {
+    if (!taskProject || !taskTitle.trim()) return;
+
+    setIsSavingTask(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: taskTitle.trim(),
+          priority: taskPriority,
+          projectId: taskProject.id,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to create task.");
+      }
+
+      setTaskProject(null);
+      setTaskTitle("");
+      setTaskPriority("NORMAL");
+      await loadProjects();
+    } catch (taskError) {
+      setError(
+        taskError instanceof Error
+          ? taskError.message
+          : "Unable to create task.",
+      );
+    } finally {
+      setIsSavingTask(false);
+    }
   }
 
   async function saveProjectChanges() {
@@ -431,18 +473,91 @@ export default function ProjectsPage() {
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => openProjectEditor(project)}
-                  className="mt-5 text-sm font-semibold text-[#7C5F33]"
-                >
-                  Edit project
-                </button>
+                <div className="mt-5 flex gap-4">
+                  <button
+                    type="button"
+                    onClick={() => openProjectEditor(project)}
+                    className="text-sm font-semibold text-[#7C5F33]"
+                  >
+                    Edit project
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTaskProject(project);
+                      setTaskTitle("");
+                      setTaskPriority("NORMAL");
+                    }}
+                    className="text-sm font-semibold text-[#1E3A34]"
+                  >
+                    Add task
+                  </button>
+                </div>
               </article>
             ))
           )}
         </section>
       </div>
+
+      {taskProject && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 px-4 backdrop-blur-[2px]"
+          onClick={() => setTaskProject(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-3xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold text-[#1E3A34]">
+                Add task to {taskProject.name}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setTaskProject(null)}
+                className="text-sm text-[#6F776B]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <label>
+                <span className="text-sm">Task</span>
+                <input
+                  value={taskTitle}
+                  onChange={(event) => setTaskTitle(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                  autoFocus
+                />
+              </label>
+
+              <label>
+                <span className="text-sm">Priority</span>
+                <select
+                  value={taskPriority}
+                  onChange={(event) => setTaskPriority(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                >
+                  <option value="NORMAL">Normal</option>
+                  <option value="HIGH">High</option>
+                  <option value="LOW">Low</option>
+                </select>
+              </label>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void createProjectTask()}
+              disabled={isSavingTask || !taskTitle.trim()}
+              className="mt-6 w-full rounded-xl bg-[#1E3A34] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {isSavingTask ? "Saving…" : "Create task"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {editingProject && (
         <div
