@@ -62,6 +62,10 @@ export default function ProjectsPage() {
 
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
+  const [expandedTaskProjects, setExpandedTaskProjects] = useState<
+    Set<string>
+  >(new Set());
+
   async function loadProjects() {
     setIsLoading(true);
     setError(null);
@@ -535,7 +539,10 @@ export default function ProjectsPage() {
                       </div>
 
                       <div className="mt-3 space-y-2">
-                        {project.tasks.slice(0, 5).map((task) => (
+                        {(expandedTaskProjects.has(project.id)
+                          ? project.tasks
+                          : project.tasks.slice(0, 5)
+                        ).map((task) => (
                           <div
                             key={task.id}
                             draggable
@@ -567,6 +574,30 @@ export default function ProjectsPage() {
                             </button>
                           </div>
                         ))}
+
+                        {project.tasks.length > 5 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedTaskProjects((current) => {
+                                const next = new Set(current);
+
+                                if (next.has(project.id)) {
+                                  next.delete(project.id);
+                                } else {
+                                  next.add(project.id);
+                                }
+
+                                return next;
+                              })
+                            }
+                            className="mt-2 text-xs font-semibold text-[#7C5F33]"
+                          >
+                            {expandedTaskProjects.has(project.id)
+                              ? "Show fewer"
+                              : `Show all ${project.tasks.length} tasks`}
+                          </button>
+                        )}
 
                         {project.tasks.length === 0 && (
                           <p className="text-sm text-[#7A826E]">
