@@ -2,12 +2,12 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-type ProjectTask = {
+type Task = {
   id: string;
   title: string;
-  status: string;
-  completedAt: string | null;
-  priority: string;
+  dueAt: string | null;
+  sortOrder: number;
+  inTaskList: boolean;
 };
 
 type ProjectSocialContent = {
@@ -33,7 +33,7 @@ type Project = {
   notes: string | null;
   areaId: string | null;
   area: Area | null;
-  tasks: ProjectTask[];
+  tasks: Task[];
   socialContent: ProjectSocialContent[];
 };
 
@@ -57,8 +57,10 @@ export default function ProjectsPage() {
   const [editNotes, setEditNotes] = useState("");
   const [taskProject, setTaskProject] = useState<Project | null>(null);
   const [taskTitle, setTaskTitle] = useState("");
-  const [taskPriority, setTaskPriority] = useState("NORMAL");
+  const [taskDueAt, setTaskDueAt] = useState("");
   const [isSavingTask, setIsSavingTask] = useState(false);
+
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
   async function loadProjects() {
     setIsLoading(true);
@@ -128,8 +130,9 @@ export default function ProjectsPage() {
         },
         body: JSON.stringify({
           title: taskTitle.trim(),
-          priority: taskPriority,
+          dueAt: taskDueAt || null,
           projectId: taskProject.id,
+          inTaskList: false,
         }),
       });
 
@@ -139,7 +142,7 @@ export default function ProjectsPage() {
 
       setTaskProject(null);
       setTaskTitle("");
-      setTaskPriority("NORMAL");
+      setTaskDueAt("");
       await loadProjects();
     } catch (taskError) {
       setError(
@@ -152,32 +155,117 @@ export default function ProjectsPage() {
     }
   }
 
-  async function completeProjectTask(taskId: string) {
+  async function sendProjectTaskToTasks(task: Task) {
+
     setError(null);
 
     try {
+
       const response = await fetch("/api/tasks", {
+
         method: "PATCH",
+
         headers: {
+
           "Content-Type": "application/json",
+
         },
+
         body: JSON.stringify({
-          id: taskId,
-          completed: true,
+
+          id: task.id,
+
+          inTaskList: true,
+
         }),
+
       });
 
       if (!response.ok) {
-        throw new Error("Unable to complete task.");
+
+        throw new Error("Unable to send task to Tasks.");
+
       }
 
       await loadProjects();
+
     } catch (taskError) {
+
       setError(
+
         taskError instanceof Error
+
           ? taskError.message
-          : "Unable to complete task.",
+
+          : "Unable to send task to Tasks.",
+
       );
+
+    }
+
+  }
+
+  async function reorderProjectTask(
+    projectId: string,
+    targetTaskId: string,
+  ) {
+    if (!draggedTaskId || draggedTaskId === targetTaskId) return;
+
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    const currentTasks = [...project.tasks];
+
+    const fromIndex = currentTasks.findIndex(
+      (task) => task.id === draggedTaskId,
+    );
+
+    const toIndex = currentTasks.findIndex(
+      (task) => task.id === targetTaskId,
+    );
+
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const [movedTask] = currentTasks.splice(fromIndex, 1);
+    currentTasks.splice(toIndex, 0, movedTask);
+
+    setProjects((allProjects) =>
+      allProjects.map((item) =>
+        item.id === projectId
+          ? { ...item, tasks: currentTasks }
+          : item,
+      ),
+    );
+
+    setDraggedTaskId(null);
+    setError(null);
+
+    try {
+      const responses = await Promise.all(
+        currentTasks.map((task, index) =>
+          fetch("/api/tasks", {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              id: task.id,
+              sortOrder: index,
+            }),
+          }),
+        ),
+      );
+
+      if (responses.some((response) => !response.ok)) {
+        throw new Error("Unable to save project task order.");
+      }
+    } catch (reorderError) {
+      setError(
+        reorderError instanceof Error
+          ? reorderError.message
+          : "Unable to save project task order.",
+      );
+      await loadProjects();
     }
   }
 
@@ -420,11 +508,11 @@ export default function ProjectsPage() {
                         onClick={() => {
                           setTaskProject(project);
                           setTaskTitle(project.nextAction ?? "");
-                          setTaskPriority("NORMAL");
+                          setTaskDueAt("");
                         }}
                         className="text-xs font-semibold text-[#1E3A34]"
                       >
-                        Make task
+                        Add as Task
                       </button>
                     </div>
 
@@ -439,52 +527,54 @@ export default function ProjectsPage() {
                     <div className="rounded-xl border border-[#E1DBD1] bg-white/70 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B08D57]">
-                          Open tasks
+                          Tasks
                         </p>
                         <span className="text-xs font-semibold text-[#7C5F33]">
-                          {
-                            project.tasks.filter(
-                              (task) =>
-                                !task.completedAt &&
-                                task.status.toUpperCase() !== "DONE",
-                            ).length
-                          }
+                          {project.tasks.length}
                         </span>
                       </div>
 
                       <div className="mt-3 space-y-2">
-                        {project.tasks
-                          .filter(
-                            (task) =>
-                              !task.completedAt &&
-                              task.status.toUpperCase() !== "DONE",
-                          )
-                          .slice(0, 3)
-                          .map((task) => (
-                            <button
-                              key={task.id}
-                              type="button"
-                              onClick={() => void completeProjectTask(task.id)}
-                              className="block w-full text-left text-sm text-[#3F4742] hover:line-through"
-                              title="Mark complete"
-                            >
-                              {task.priority === "HIGH" ? "★ " : ""}
+                        {project.tasks.slice(0, 5).map((task) => (
+                          <div
+                            key={task.id}
+                            draggable
+                            onDragStart={() => setDraggedTaskId(task.id)}
+                            onDragEnd={() => setDraggedTaskId(null)}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={() =>
+                              void reorderProjectTask(project.id, task.id)
+                            }
+                            className={`flex cursor-grab items-center justify-between gap-3 rounded-lg px-2 py-1 ${
+                              draggedTaskId === task.id
+                                ? "opacity-40"
+                                : ""
+                            }`}
+                          >
+                            <p className="text-sm text-[#3F4742]">
+                              
                               {task.title}
-                            </button>
-                          ))}
+                            </p>
 
-                        {project.tasks.filter(
-                          (task) =>
-                            !task.completedAt &&
-                            task.status.toUpperCase() !== "DONE",
-                        ).length === 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void sendProjectTaskToTasks(task)
+                              }
+                              className="shrink-0 text-xs font-semibold text-[#7C5F33]"
+                            >
+                              Send to Tasks
+                            </button>
+                          </div>
+                        ))}
+
+                        {project.tasks.length === 0 && (
                           <p className="text-sm text-[#7A826E]">
-                            No open tasks.
+                            No project tasks yet.
                           </p>
                         )}
                       </div>
                     </div>
-
                     <div className="rounded-xl border border-[#E1DBD1] bg-white/70 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#B08D57]">
@@ -533,7 +623,7 @@ export default function ProjectsPage() {
                     onClick={() => {
                       setTaskProject(project);
                       setTaskTitle("");
-                      setTaskPriority("NORMAL");
+                      setTaskDueAt("");
                     }}
                     className="text-sm font-semibold text-[#1E3A34]"
                   >
@@ -580,17 +670,14 @@ export default function ProjectsPage() {
               </label>
 
               <label>
-                <span className="text-sm">Priority</span>
-                <select
-                  value={taskPriority}
-                  onChange={(event) => setTaskPriority(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
-                >
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">High</option>
-                  <option value="LOW">Low</option>
-                </select>
-              </label>
+                  <span className="text-sm">Due date (optional)</span>
+                  <input
+                    type="date"
+                    value={taskDueAt}
+                    onChange={(event) => setTaskDueAt(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
+                  />
+                </label>
             </div>
 
             <button

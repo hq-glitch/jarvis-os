@@ -213,13 +213,15 @@ model OAuthState {
 }
 
 model Task {
-  id          String    @id @default(cuid())
-  title       String
-  description String?
-  status      String    @default("TODO")
-  priority    String    @default("NORMAL")
-  dueAt       DateTime?
-  completedAt DateTime?
+  id              String    @id @default(cuid())
+  title           String
+  description     String?
+  status          String    @default("TODO")
+  dueAt           DateTime?
+  completedAt     DateTime?
+  sortOrder       Int       @default(0)
+  manuallyOrdered Boolean   @default(false)
+  inTaskList      Boolean   @default(true)
 
   sourceType      String?
   sourceAccount   String?

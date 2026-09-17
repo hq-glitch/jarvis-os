@@ -30,7 +30,6 @@ export async function GET() {
         title: task.title,
         description: task.description,
         status: task.status,
-        priority: task.priority,
         dueAt: task.dueAt?.toISOString() ?? null,
         completedAt:
           task.completedAt?.toISOString() ?? null,

@@ -17,9 +17,10 @@ export async function GET() {
       include: {
         area: true,
         tasks: {
-          orderBy: {
-            updatedAt: "desc",
-          },
+          orderBy: [
+            { sortOrder: "asc" },
+            { createdAt: "asc" },
+          ],
         },
         socialContent: {
           orderBy: {

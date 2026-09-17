@@ -3,7 +3,6 @@ export type PriorityTask = {
   title: string;
   description: string | null;
   status: string;
-  priority: string;
   dueAt: string | null;
   completedAt: string | null;
   sourceType: string | null;
@@ -41,11 +40,6 @@ export function scoreTask(
       score: -1000,
       reasons: ["Completed"],
     };
-  }
-
-  if (task.priority === "HIGH") {
-    score += 18;
-    reasons.push("High priority");
   }
 
   if (task.dueAt) {

@@ -11,6 +11,7 @@ export async function GET() {
   const tasks = await prisma.task.findMany({
     where: {
       userId: user.id,
+      inTaskList: true,
     },
     include: {
       area: true,
@@ -20,21 +21,44 @@ export async function GET() {
         },
       },
     },
-    orderBy: [
-      {
-        completedAt: "asc",
-      },
-      {
-        dueAt: "asc",
-      },
-      {
-        createdAt: "desc",
-      },
-    ],
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
+
+  const orderedTasks = [...tasks].sort((a, b) => {
+    const aCompleted =
+      Boolean(a.completedAt) || a.status.toUpperCase() === "DONE";
+    const bCompleted =
+      Boolean(b.completedAt) || b.status.toUpperCase() === "DONE";
+
+    if (aCompleted !== bCompleted) {
+      return aCompleted ? 1 : -1;
+    }
+
+    if (a.manuallyOrdered || b.manuallyOrdered) {
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
+      }
+    }
+
+    if (a.dueAt && b.dueAt) {
+      return a.dueAt.getTime() - b.dueAt.getTime();
+    }
+
+    if (a.dueAt && !b.dueAt) {
+      return -1;
+    }
+
+    if (!a.dueAt && b.dueAt) {
+      return 1;
+    }
+
+    return a.createdAt.getTime() - b.createdAt.getTime();
   });
 
   return NextResponse.json({
-    tasks,
+    tasks: orderedTasks,
   });
 }
 
@@ -43,8 +67,10 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       title?: string;
       description?: string | null;
-      priority?: string | null;
       dueAt?: string | null;
+      inTaskList?: boolean;
+      sortOrder?: number;
+      manuallyOrdered?: boolean;
       sourceType?: string | null;
       sourceAccount?: string | null;
       sourceMessageId?: string | null;
@@ -160,8 +186,10 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         title,
         description: body.description?.trim() || null,
-        priority: body.priority?.trim() || "NORMAL",
         dueAt: body.dueAt ? new Date(body.dueAt) : null,
+        inTaskList: body.inTaskList ?? true,
+        sortOrder: body.sortOrder ?? 0,
+        manuallyOrdered: body.manuallyOrdered ?? false,
         sourceType: body.sourceType?.trim() || null,
         sourceAccount: body.sourceAccount?.trim() || null,
         sourceMessageId: body.sourceMessageId?.trim() || null,
@@ -203,8 +231,10 @@ export async function PATCH(request: NextRequest) {
       id?: string;
       title?: string;
       description?: string | null;
-      priority?: string;
       dueAt?: string | null;
+      inTaskList?: boolean;
+      sortOrder?: number;
+      manuallyOrdered?: boolean;
       completed?: boolean;
       projectId?: string | null;
       areaId?: string | null;
@@ -333,9 +363,19 @@ export async function PATCH(request: NextRequest) {
               description: body.description?.trim() || null,
             }
           : {}),
-        ...(body.priority !== undefined
+        ...(body.inTaskList !== undefined
           ? {
-              priority: body.priority.trim() || "NORMAL",
+              inTaskList: body.inTaskList,
+            }
+          : {}),
+        ...(body.sortOrder !== undefined
+          ? {
+              sortOrder: body.sortOrder,
+            }
+          : {}),
+        ...(body.manuallyOrdered !== undefined
+          ? {
+              manuallyOrdered: body.manuallyOrdered,
             }
           : {}),
         ...(body.dueAt !== undefined

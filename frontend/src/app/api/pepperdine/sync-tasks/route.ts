@@ -97,10 +97,6 @@ export async function POST() {
           title: `${item.course}: ${item.title}`,
           description: `Pepperdine Fall 2026 • Week ${week}`,
           status: "TODO",
-          priority:
-            item.priority === "high"
-              ? "HIGH"
-              : "NORMAL",
           dueAt: new Date(`${dueDate}T12:00:00.000Z`),
           sourceType: "PEPPERDINE",
           sourceAccount: SOURCE_ACCOUNT,

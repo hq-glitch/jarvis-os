@@ -118,21 +118,6 @@ export function evaluateAutomations({
       continue;
     }
 
-    if (
-      task.priority === "HIGH" &&
-      scored.score >= 40
-    ) {
-      actions.push({
-        id: `priority:${task.id}`,
-        level: "SUGGEST",
-        type: "HIGH_PRIORITY_TASK",
-        title: task.title,
-        description:
-          "Jarvis considers this one of your highest-priority open tasks.",
-        taskId: task.id,
-        score: scored.score,
-      });
-    }
   }
 
   return actions.sort(

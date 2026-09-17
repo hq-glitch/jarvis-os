@@ -7,7 +7,6 @@ type Task = {
   title: string;
   description: string | null;
   status: string;
-  priority: string;
   dueAt: string | null;
   completedAt: string | null;
   sourceType: string | null;
@@ -66,7 +65,6 @@ export default function TasksPage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState("NORMAL");
   const [dueDate, setDueDate] = useState("");
   const [projectId, setProjectId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -74,10 +72,10 @@ export default function TasksPage() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
-  const [editPriority, setEditPriority] = useState("NORMAL");
   const [editDueDate, setEditDueDate] = useState("");
   const [editProjectId, setEditProjectId] = useState("");
   const [taskError, setTaskError] = useState<string | null>(null);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
   async function loadTasks() {
     setIsLoading(true);
@@ -140,6 +138,65 @@ export default function TasksPage() {
     [tasks],
   );
 
+  async function reorderTask(targetTaskId: string) {
+    if (!draggedTaskId || draggedTaskId === targetTaskId) return;
+
+    const currentTasks = [...openTasks];
+    const fromIndex = currentTasks.findIndex(
+      (task) => task.id === draggedTaskId,
+    );
+    const toIndex = currentTasks.findIndex(
+      (task) => task.id === targetTaskId,
+    );
+
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const [movedTask] = currentTasks.splice(fromIndex, 1);
+    currentTasks.splice(toIndex, 0, movedTask);
+
+    setTasks((allTasks) => {
+      const completed = allTasks.filter(
+        (task) =>
+          Boolean(task.completedAt) ||
+          task.status.toUpperCase() === "DONE",
+      );
+
+      return [...currentTasks, ...completed];
+    });
+
+    setDraggedTaskId(null);
+    setTaskError(null);
+
+    try {
+      const responses = await Promise.all(
+        currentTasks.map((task, index) =>
+          fetch("/api/tasks", {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              id: task.id,
+              sortOrder: index,
+              manuallyOrdered: true,
+            }),
+          }),
+        ),
+      );
+
+      if (responses.some((response) => !response.ok)) {
+        throw new Error("Unable to save task order.");
+      }
+    } catch (error) {
+      setTaskError(
+        error instanceof Error
+          ? error.message
+          : "Unable to save task order.",
+      );
+      await loadTasks();
+    }
+  }
+
   async function createTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -159,7 +216,6 @@ export default function TasksPage() {
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() || null,
-          priority,
           projectId: projectId || null,
           dueAt: dueDate
             ? new Date(`${dueDate}T12:00:00`).toISOString()
@@ -181,7 +237,6 @@ export default function TasksPage() {
       setTasks((current) => [data.task!, ...current]);
       setTitle("");
       setDescription("");
-      setPriority("NORMAL");
       setDueDate("");
       setProjectId("");
       setIsFormOpen(false);
@@ -200,7 +255,6 @@ export default function TasksPage() {
     setEditingTask(task);
     setEditTitle(task.title);
     setEditDescription(task.description ?? "");
-    setEditPriority(task.priority);
     setEditDueDate(dateInputValue(task.dueAt));
     setEditProjectId(task.projectId ?? "");
     setTaskError(null);
@@ -224,7 +278,6 @@ export default function TasksPage() {
           id: editingTask.id,
           title: editTitle.trim(),
           description: editDescription.trim() || null,
-          priority: editPriority,
           projectId: editProjectId || null,
           dueAt: editDueDate
             ? new Date(`${editDueDate}T12:00:00`).toISOString()
@@ -387,7 +440,7 @@ export default function TasksPage() {
           </div>
         </div>
 
-        <section className="mb-6 grid gap-4 sm:grid-cols-3">
+        <section className="mb-6 grid gap-4 sm:grid-cols-2">
           <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-5">
             <p className="text-3xl font-semibold text-[#1E3A34]">
               {openTasks.length}
@@ -397,18 +450,6 @@ export default function TasksPage() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-5">
-            <p className="text-3xl font-semibold text-[#1E3A34]">
-              {
-                openTasks.filter(
-                  (task) => task.priority === "HIGH",
-                ).length
-              }
-            </p>
-            <p className="mt-1 text-sm text-[#6F776B]">
-              High priority
-            </p>
-          </div>
 
           <div className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-5">
             <p className="text-3xl font-semibold text-[#1E3A34]">
@@ -444,22 +485,6 @@ export default function TasksPage() {
                 />
               </label>
 
-              <label>
-                <span className="text-sm text-[#3F4742]">
-                  Priority
-                </span>
-                <select
-                  value={priority}
-                  onChange={(event) =>
-                    setPriority(event.target.value)
-                  }
-                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3 outline-none focus:border-[#B08D57]"
-                >
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">High</option>
-                  <option value="LOW">Low</option>
-                </select>
-              </label>
 
               <label>
                 <span className="text-sm text-[#3F4742]">
@@ -553,7 +578,16 @@ export default function TasksPage() {
               openTasks.map((task) => (
                 <article
                   key={task.id}
-                  className="rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4"
+                  draggable
+                  onDragStart={() => setDraggedTaskId(task.id)}
+                  onDragEnd={() => setDraggedTaskId(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => void reorderTask(task.id)}
+                  className={`rounded-xl border border-[#E1DBD1] bg-[#F3EFE7] p-4 transition ${
+                    draggedTaskId === task.id
+                      ? "opacity-50"
+                      : "opacity-100"
+                  }`}
                 >
                   <div className="flex items-start gap-4">
                     <button
@@ -586,11 +620,6 @@ export default function TasksPage() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {task.priority === "HIGH" && (
-                            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
-                              High
-                            </span>
-                          )}
 
                           {formatDueDate(task.dueAt) && (
                             <span className="rounded-full border border-[#D7D0C5] bg-white px-2 py-1 text-xs text-[#6F776B]">
@@ -730,20 +759,6 @@ export default function TasksPage() {
                 />
               </label>
 
-              <label>
-                <span className="text-sm">Priority</span>
-                <select
-                  value={editPriority}
-                  onChange={(event) =>
-                    setEditPriority(event.target.value)
-                  }
-                  className="mt-2 w-full rounded-xl border border-[#C7BFB2] bg-white px-4 py-3"
-                >
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">High</option>
-                  <option value="LOW">Low</option>
-                </select>
-              </label>
 
               <label>
                 <span className="text-sm">Due date</span>

@@ -251,11 +251,6 @@ export async function POST(request: NextRequest) {
           userId: user.id,
           title,
           description: clean(body.description),
-          priority:
-            clean(body.priority) ??
-            (parsed?.intent === "TASK"
-              ? parsed.priority
-              : "NORMAL"),
           dueAt,
           sourceType,
           sourceAccount,
