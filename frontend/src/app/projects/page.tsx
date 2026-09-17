@@ -39,6 +39,8 @@ type Project = {
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
+
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -207,6 +209,57 @@ export default function ProjectsPage() {
 
     }
 
+  }
+
+  async function reorderProject(targetProjectId: string) {
+    if (!draggedProjectId || draggedProjectId === targetProjectId) return;
+
+    const currentProjects = [...projects];
+
+    const fromIndex = currentProjects.findIndex(
+      (project) => project.id === draggedProjectId,
+    );
+
+    const toIndex = currentProjects.findIndex(
+      (project) => project.id === targetProjectId,
+    );
+
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const [movedProject] = currentProjects.splice(fromIndex, 1);
+    currentProjects.splice(toIndex, 0, movedProject);
+
+    setProjects(currentProjects);
+    setDraggedProjectId(null);
+    setError(null);
+
+    try {
+      const responses = await Promise.all(
+        currentProjects.map((project, index) =>
+          fetch("/api/projects", {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              id: project.id,
+              sortOrder: index,
+            }),
+          }),
+        ),
+      );
+
+      if (responses.some((response) => !response.ok)) {
+        throw new Error("Unable to save project order.");
+      }
+    } catch (reorderError) {
+      setError(
+        reorderError instanceof Error
+          ? reorderError.message
+          : "Unable to save project order.",
+      );
+      await loadProjects();
+    }
   }
 
   async function reorderProjectTask(
@@ -456,7 +509,16 @@ export default function ProjectsPage() {
             projects.map((project) => (
               <article
                 key={project.id}
-                className="rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6"
+                draggable
+                onDragStart={() => setDraggedProjectId(project.id)}
+                onDragEnd={() => setDraggedProjectId(null)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => void reorderProject(project.id)}
+                className={`rounded-2xl border border-[#D7D0C5] bg-[#F8F5EF] p-6 ${
+                  draggedProjectId === project.id
+                    ? "opacity-40"
+                    : ""
+                }`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>

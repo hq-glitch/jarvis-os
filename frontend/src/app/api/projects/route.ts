@@ -28,9 +28,10 @@ export async function GET() {
           },
         },
       },
-      orderBy: {
-        updatedAt: "desc",
-      },
+      orderBy: [
+        { sortOrder: "asc" },
+        { createdAt: "asc" },
+      ],
     });
 
     return NextResponse.json({ projects });
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
       description?: string | null;
       status?: string;
       progress?: number;
+      sortOrder?: number;
       nextAction?: string | null;
       notes?: string | null;
       sourceType?: string | null;
@@ -119,6 +121,7 @@ export async function PATCH(request: NextRequest) {
       description?: string | null;
       status?: string;
       progress?: number;
+      sortOrder?: number;
       nextAction?: string | null;
       notes?: string | null;
       areaId?: string | null;
@@ -188,6 +191,11 @@ export async function PATCH(request: NextRequest) {
                 0,
                 Math.min(100, body.progress),
               ),
+            }
+          : {}),
+        ...(body.sortOrder !== undefined
+          ? {
+              sortOrder: body.sortOrder,
             }
           : {}),
         ...(body.nextAction !== undefined

@@ -420,6 +420,7 @@ model Project {
   description String?
   status      String  @default("PLANNING")
   progress    Int     @default(0)
+  sortOrder   Int     @default(0)
   nextAction  String?
   notes       String?
 
